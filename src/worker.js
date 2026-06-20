@@ -293,23 +293,41 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1f29
 .panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}
 .panel h2{font-size:14px;margin:0 0 14px;color:#374151}
 .panel h2 .count{float:right;font-weight:400}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .mini{width:100%;font-size:13px;border-collapse:collapse}
-.mini th{font-size:12px;color:#6b7280;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
-.mini td{padding:9px 8px;border-bottom:1px solid #f1f5f9}
+.mini th{font-size:12px;color:#6b7280;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.mini td{padding:9px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap}
+.tabs{display:flex;gap:2px;margin-bottom:12px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:9px 13px;font-size:13px;color:var(--mut);cursor:pointer;white-space:nowrap}
+.tabs button:hover{color:#0f172a}
+.tabs button.active{color:#0f172a;border-bottom-color:#2563eb;font-weight:600}
+.tabs button .c{color:#9ca3af;font-size:12px;margin-left:2px}
 .brow{display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px}
 .bar{height:10px;border-radius:6px;background:#f1f5f9;overflow:hidden;margin-bottom:16px}
 .bar>i{display:block;height:100%}
 @media(max-width:900px){.grid2{grid-template-columns:1fr}}
 @media(max-width:760px){
   .app{flex-direction:column}
-  .side{width:auto;flex:0 0 auto;padding:12px 0}
-  .brand{padding:0 16px 10px}
-  .nav{margin-top:8px;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .side{width:auto;flex:0 0 auto;padding:10px 0;position:sticky;top:0;z-index:10}
+  .brand{padding:0 16px 8px}
+  .nav{margin-top:6px;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .nav button{white-space:nowrap;padding:9px 14px;gap:6px}
+  .nav .badge{display:none}
   .main{padding:16px}
+  .head{margin-bottom:14px}
   .head h1{font-size:18px}
+  .tiles{gap:10px;margin-bottom:16px}
+  .tile{padding:14px;gap:8px}
+  .tile .n{font-size:24px}
+  .panel{padding:14px}
+  .grid2{gap:12px}
   .toolbar{flex-wrap:wrap}
-  .toolbar input{max-width:none}
+  .toolbar input{max-width:none;width:100%}
+  .toolbar .count{margin-left:0}
+}
+@media(max-width:420px){
+  .tiles{grid-template-columns:repeat(2,1fr)}
+  .tile .n{font-size:22px}
 }
 .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:auto}
 table{border-collapse:collapse;width:100%;font-size:14px}
@@ -347,15 +365,25 @@ tbody tr:hover{background:#f8fafc}
       <div class="grid2">
         <div class="panel">
           <h2>Needs attention <span class="count" id="flaggedCount"></span></h2>
-          <table class="mini"><thead><tr><th>Email</th><th class="center">Strikes</th>
+          <div class="scroll"><table class="mini"><thead><tr><th>Email</th><th class="center">Strikes</th>
             <th class="center">Switches</th><th class="center">Paste</th>
             <th class="center">Off-site</th><th class="center">Finished</th></tr></thead>
-            <tbody id="flagged"></tbody></table>
+            <tbody id="flagged"></tbody></table></div>
         </div>
         <div>
           <div class="panel"><h2>Infraction breakdown</h2><div id="breakdown"></div></div>
           <div class="panel" style="margin-top:16px"><h2>Completion</h2><div id="progress"></div></div>
         </div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="tabs" id="infTabs">
+          <button data-t="tab_switch" class="active">Tab switches <span class="c"></span></button>
+          <button data-t="clipboard_blocked">Copy/paste <span class="c"></span></button>
+          <button data-t="offsite_warning">Off-site <span class="c"></span></button>
+        </div>
+        <div class="scroll"><table class="mini"><thead><tr><th>Time (EAT)</th><th>Email</th>
+          <th class="center">Strikes</th><th>IP</th><th>Path</th></tr></thead>
+          <tbody id="infBody"></tbody></table></div>
       </div>
     </div>
     <div id="tableWrap">
@@ -481,6 +509,23 @@ function renderDashboard(){
   var mx=Math.max(totSw,totPaste,offsite.length,1);
   $('#breakdown').innerHTML=bar('Tab switches',totSw,mx,'#d97706')+bar('Copy/paste blocks',totPaste,mx,'#ea580c')+bar('Off-site attempts',offsite.length,mx,'#7c3aed');
   $('#progress').innerHTML=bar('Finished '+doneCount+' / '+candidates.length,doneCount,candidates.length,'#16a34a');
+
+  // tabbed infraction detail
+  var infBy={tab_switch:[],clipboard_blocked:[],offsite_warning:[]};
+  DATA.forEach(function(e){ if(infBy[e.type]) infBy[e.type].push(e); });
+  function renderInf(type){
+    var list=(infBy[type]||[]).slice().sort(function(a,b){return b.ts-a.ts;}).slice(0,50);
+    $('#infBody').innerHTML = list.length ? list.map(function(e){
+      return '<tr><td>'+esc(fmt(e.ts))+'</td><td>'+esc(e.email)+'</td><td class="center">'+(e.strikes||0)+'</td><td>'+esc(e.ip||'')+'</td><td>'+esc(e.path||'')+'</td></tr>';
+    }).join('') : '<tr><td colspan="5" class="empty">None recorded</td></tr>';
+    Array.prototype.forEach.call(document.querySelectorAll('#infTabs button'),function(b){ b.classList.toggle('active', b.getAttribute('data-t')===type); });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#infTabs button'),function(b){
+    var t=b.getAttribute('data-t');
+    b.querySelector('.c').textContent=(infBy[t]||[]).length;
+    b.onclick=function(){ renderInf(t); };
+  });
+  renderInf('tab_switch');
 }
 
 function go(view){
