@@ -1,4 +1,4 @@
-name = "interview-lock"
+name = "interview"
 main = "src/worker.js"
 compatibility_date = "2025-06-01"
 
@@ -7,7 +7,7 @@ compatibility_date = "2025-06-01"
 
 [vars]
 # Tab/app switches allowed before the hard "blocked" screen shows.
-MAX_STRIKES = "10"
+MAX_STRIKES = "5"
 
 # PIN the on-site supervisor types into the lock screen to reset a candidate.
 # CHANGE THIS before deploying.
@@ -23,7 +23,7 @@ ADMIN_KEY = "change-me-to-something-long"
 #   2) paste the printed database_id below and uncomment this block
 #   3) npx wrangler d1 execute interview-lock-log --remote --file schema.sql
 #
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "interview-lock-log"
-# database_id = "d9772e90-6e95-4840-8524-932b1f3e15f7"
+[[d1_databases]]
+binding = "DB"
+database_name = "interview-lock-log"
+database_id = "d9772e90-6e95-4840-8524-932b1f3e15f7"
