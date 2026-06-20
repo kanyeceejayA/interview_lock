@@ -264,14 +264,15 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1f29
 .head h1{font-size:20px;margin:0}
 .actions button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px}
-.tile{background:#fff;border:1px solid var(--line);border-left:4px solid #cbd5e1;border-radius:12px;padding:16px 18px}
-.tile .n{font-size:26px;font-weight:700}
-.tile .l{font-size:12px;color:var(--mut);margin-top:4px;text-transform:uppercase;letter-spacing:.04em}
-.tile.cand{border-left-color:#2563eb}.tile.cand .n{color:#2563eb}
-.tile.done{border-left-color:#16a34a}.tile.done .n{color:#16a34a}
-.tile.sw{border-left-color:#d97706}.tile.sw .n{color:#d97706}
-.tile.paste{border-left-color:#ea580c}.tile.paste .n{color:#ea580c}
-.tile.off{border-left-color:#7c3aed}.tile.off .n{color:#7c3aed}
+.tile{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:12px}
+.tile .l{order:0;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.tile .l::before{content:"";width:8px;height:8px;border-radius:50%;background:#cbd5e1;flex:0 0 8px}
+.tile .n{order:1;font-size:30px;font-weight:700;line-height:1;color:#0f172a}
+.tile.cand .l::before{background:#2563eb}
+.tile.done .l::before{background:#16a34a}
+.tile.sw .l::before{background:#d97706}
+.tile.paste .l::before{background:#ea580c}
+.tile.off .l::before{background:#7c3aed}
 .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
 .toolbar input{border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px;flex:1;max-width:340px}
 .toolbar .count{color:var(--mut);font-size:13px;margin-left:auto}
@@ -299,6 +300,17 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1f29
 .bar{height:10px;border-radius:6px;background:#f1f5f9;overflow:hidden;margin-bottom:16px}
 .bar>i{display:block;height:100%}
 @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+@media(max-width:760px){
+  .app{flex-direction:column}
+  .side{width:auto;flex:0 0 auto;padding:12px 0}
+  .brand{padding:0 16px 10px}
+  .nav{margin-top:8px;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .nav button{white-space:nowrap;padding:9px 14px;gap:6px}
+  .main{padding:16px}
+  .head h1{font-size:18px}
+  .toolbar{flex-wrap:wrap}
+  .toolbar input{max-width:none}
+}
 .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:auto}
 table{border-collapse:collapse;width:100%;font-size:14px}
 thead th{background:#f9fafb;text-align:left;padding:11px 14px;font-size:12px;color:#374151;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;position:sticky;top:0}
@@ -359,7 +371,7 @@ tbody tr:hover{background:#f8fafc}
 <script>
 var DATA = ${payload};
 var $ = function(s){return document.querySelector(s)};
-function fmt(ts){ if(!ts) return ''; return new Date(ts).toISOString().replace('T',' ').slice(0,19); }
+function fmt(ts){ if(!ts) return ''; return new Date(ts+3*3600*1000).toISOString().replace('T',' ').slice(0,19); }
 function esc(s){ s=(s==null?'':''+s); return s.replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 
 var byEmail={};
@@ -401,24 +413,24 @@ var VIEWS={
    {key:'last_ip',label:'Last IP'},
    {key:'last_ts',label:'Last activity',fmt:fmt}]},
  completed:{title:'Completed (reached results)',rows:function(){return completed;},sort:{key:'ts',dir:-1},cols:[
-   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'ts',label:'Time (EAT)',fmt:fmt},
    {key:'email',label:'Email'},
    {key:'strikes',label:'Strikes at finish',align:'center'},
    {key:'ip',label:'IP'}]},
  events:{title:'All events',rows:function(){return DATA;},sort:{key:'ts',dir:-1},types:true,cols:[
-   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'ts',label:'Time (EAT)',fmt:fmt},
    {key:'email',label:'Email'},
    {key:'type',label:'Event',fmt:typePill},
    {key:'strikes',label:'Strike#',align:'center'},
    {key:'ip',label:'IP'},
    {key:'path',label:'Path'}]},
  offsite:{title:'Off-site warnings',rows:function(){return offsite;},sort:{key:'ts',dir:-1},cols:[
-   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'ts',label:'Time (EAT)',fmt:fmt},
    {key:'email',label:'Email'},
    {key:'ip',label:'IP'},
    {key:'path',label:'Path'}]},
  signins:{title:'Sign-ins via this proxy',rows:function(){return signins;},sort:{key:'ts',dir:-1},cols:[
-   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'ts',label:'Time (EAT)',fmt:fmt},
    {key:'email',label:'Email'},
    {key:'ip',label:'IP'}]}
 };
