@@ -11,7 +11,7 @@ MAX_STRIKES = "10"
 
 # PIN the on-site supervisor types into the lock screen to reset a candidate.
 # CHANGE THIS before deploying.
-SUPERVISOR_PIN = "246810"
+SUPERVISOR_PIN = "1212"
 
 # Key to view the integrity log at /__lock/admin?key=...  CHANGE THIS.
 ADMIN_KEY = "change-me-to-something-long"
@@ -26,4 +26,4 @@ ADMIN_KEY = "change-me-to-something-long"
 # [[d1_databases]]
 # binding = "DB"
 # database_name = "interview-lock-log"
-# database_id = "PASTE_DATABASE_ID_HERE"
+# database_id = "d9772e90-6e95-4840-8524-932b1f3e15f7"
