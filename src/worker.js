@@ -154,10 +154,15 @@ export default {
     if (isHtml) {
       const p = url.pathname.toLowerCase();
       const isLogout = /logout|signout/.test(p);
+      // Password-reset / forgot-password flows: auth pages, but NOT a candidate
+      // login — never capture a sign-in here (they have a password and sometimes
+      // an email field, which otherwise creates ghost "(unknown)" candidates).
+      const isReset = /\/auth\/|reset-password|new-password|forgot/.test(p);
       const isAuthPage =
         isLogout ||
+        isReset ||
         p === ENTRY.toLowerCase() ||
-        /\/users\/login|\/login\b|\/signup|\/auth\//.test(p);
+        /\/users\/login|\/login\b|\/signup/.test(p);
       // Pages where we DON'T count switches (e.g. the pre-interview waiting room
       // candidates sit on for a while). Strikes are preserved, not reset.
       const exemptPaths = (env.EXEMPT_PATHS || "/interview/audience")
@@ -191,6 +196,7 @@ export default {
         maxStrikes,
         isAuthPage,
         isLogout,
+        isReset,
         isExempt,
         isResults,
         isInterview,
@@ -216,6 +222,7 @@ function injectGuard(html, opts) {
   const snippet = GUARD.replace("__MAX_STRIKES__", String(opts.maxStrikes))
     .replace("__AUTH_PAGE__", opts.isAuthPage ? "true" : "false")
     .replace("__IS_LOGOUT__", opts.isLogout ? "true" : "false")
+    .replace("__IS_RESET__", opts.isReset ? "true" : "false")
     .replace("__EXEMPT__", opts.isExempt ? "true" : "false")
     .replace("__IS_RESULTS__", opts.isResults ? "true" : "false")
     .replace("__IS_INTERVIEW__", opts.isInterview ? "true" : "false")
@@ -486,7 +493,7 @@ DATA.forEach(function(e){
   if((e.ts||0)>c.last_ts)c.last_ts=e.ts||0;
   if(e.ip&&!c.last_ip)c.last_ip=e.ip;
 });
-var candidates=Object.keys(byEmail).map(function(k){return byEmail[k];});
+var candidates=Object.keys(byEmail).filter(function(k){return k && k!=='(unknown)';}).map(function(k){return byEmail[k];});
 var signins=DATA.filter(function(e){return e.type==='login';});
 var offsite=DATA.filter(function(e){return e.type==='offsite_warning';});
 var completed=DATA.filter(function(e){return e.type==='results_reached';});
@@ -796,8 +803,9 @@ const GUARD = `
   window.__lockInstalled = true;
 
   var MAX = __MAX_STRIKES__;
-  var AUTH_PAGE = __AUTH_PAGE__;   // login / signup / logout screen
+  var AUTH_PAGE = __AUTH_PAGE__;   // login / signup / logout / reset screen
   var IS_LOGOUT = __IS_LOGOUT__;
+  var IS_RESET = __IS_RESET__;     // password reset/forgot — not a candidate login
   var EXEMPT = __EXEMPT__;         // waiting room etc. — don't count switches
   var IS_RESULTS = __IS_RESULTS__; // results/completion page
   var IS_INTERVIEW = __IS_INTERVIEW__; // interview-start page
@@ -848,22 +856,26 @@ const GUARD = `
     // Fresh start whenever we're on a login/signup screen.
     ss.setItem(SK, "0");
     // Capture the candidate's email + arm enforcement when they submit login.
-    document.addEventListener("submit", function (e) {
-      var form = e.target;
-      if (!form || !form.querySelector) return;
-      if (!form.querySelector('input[type="password"]')) return; // only the login form
-      var emailEl =
-        form.querySelector('input[name="email"]') ||
-        form.querySelector('input[type="email"]') ||
-        form.querySelector('input[type="text"]');
-      var em = emailEl && emailEl.value ? emailEl.value.trim() : "";
-      if (em) ss.setItem(EK, em);
-      ss.setItem(AK, "1");
-      ss.setItem(SK, "0");
-      ss.removeItem(RK); ss.removeItem(IK);
-      // Record the sign-in so we can cross-check who came through the proxy.
-      beacon({ type: "login", email: em || "(unknown)", strikes: 0, t: Date.now(), url: location.pathname });
-    }, true);
+    // Skip password-reset/forgot flows entirely (those aren't candidate logins).
+    if (!IS_RESET && !IS_LOGOUT) {
+      document.addEventListener("submit", function (e) {
+        var form = e.target;
+        if (!form || !form.querySelector) return;
+        if (!form.querySelector('input[type="password"]')) return; // only the login form
+        var emailEl =
+          form.querySelector('input[name="email"]') ||
+          form.querySelector('input[type="email"]') ||
+          form.querySelector('input[type="text"]');
+        var em = emailEl && emailEl.value ? emailEl.value.trim() : "";
+        if (!em) return; // no email -> not a real candidate login, don't record
+        ss.setItem(EK, em);
+        ss.setItem(AK, "1");
+        ss.setItem(SK, "0");
+        ss.removeItem(RK); ss.removeItem(IK);
+        // Record the sign-in so we can cross-check who came through the proxy.
+        beacon({ type: "login", email: em, strikes: 0, t: Date.now(), url: location.pathname });
+      }, true);
+    }
     return; // no copy/paste blocking or switch detection on the login screen
   }
 
