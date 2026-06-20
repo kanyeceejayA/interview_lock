@@ -476,12 +476,13 @@ function esc(s){ s=(s==null?'':''+s); return s.replace(/[&<>"]/g,function(c){ret
 var byEmail={};
 DATA.forEach(function(e){
   var k=e.email||'(unknown)';
-  var c=byEmail[k]||(byEmail[k]={email:k,max_strikes:0,switches:0,paste_blocks:0,offsite:0,completed:0,last_ip:'',last_ts:0});
+  var c=byEmail[k]||(byEmail[k]={email:k,max_strikes:0,switches:0,paste_blocks:0,offsite:0,completed:0,started:0,last_ip:'',last_ts:0});
   if((e.strikes||0)>c.max_strikes)c.max_strikes=e.strikes||0;
   if(e.type==='tab_switch')c.switches++;
   if(e.type==='clipboard_blocked'||(e.type&&e.type.indexOf('paste')>=0))c.paste_blocks++;
   if(e.type==='offsite_warning')c.offsite++;
   if(e.type==='results_reached')c.completed=1;
+  if(e.type==='interview_started')c.started=1;
   if((e.ts||0)>c.last_ts)c.last_ts=e.ts||0;
   if(e.ip&&!c.last_ip)c.last_ip=e.ip;
 });
@@ -493,6 +494,11 @@ var flagged=candidates.filter(function(c){return c.max_strikes||c.switches||c.pa
 var totSw=candidates.reduce(function(s,c){return s+c.switches;},0);
 var totPaste=candidates.reduce(function(s,c){return s+c.paste_blocks;},0);
 var doneCount=candidates.filter(function(c){return c.completed;}).length;
+// Effective completion for top cards: everyone counts as done EXCEPT the current
+// batch that's started but not yet at results. This backfills historical sign-ins
+// (from before completion tracking existed) as completed.
+var inProgress=candidates.filter(function(c){return c.started&&!c.completed;}).length;
+var effDone=candidates.length-inProgress;
 
 // shifts/batches keyed by the trailing id in the URL
 var shiftMap={};
@@ -618,7 +624,8 @@ function renderDashboard(){
   }).join('') : '<tr><td colspan="6" class="empty">No infractions yet</td></tr>';
   var mx=Math.max(totSw,totPaste,offsite.length,1);
   $('#breakdown').innerHTML=bar('Tab switches',totSw,mx,'#d97706')+bar('Copy/paste blocks',totPaste,mx,'#ea580c')+bar('Off-site attempts',offsite.length,mx,'#7c3aed');
-  $('#progress').innerHTML=bar('Finished '+doneCount+' / '+candidates.length,doneCount,candidates.length,'#16a34a');
+  $('#progress').innerHTML=bar('Finished '+effDone+' / '+candidates.length,effDone,candidates.length,'#16a34a')+
+    '<div style="font-size:12px;color:#9ca3af;margin-top:-8px">'+inProgress+' in progress &middot; historical sign-ins counted as completed</div>';
 
   // shifts panel
   var sh=shifts.slice().sort(function(a,b){return b.shift-a.shift;});
@@ -677,7 +684,7 @@ $('#b-events').textContent=DATA.length;
 $('#b-offsite').textContent=offsite.length;
 $('#b-signins').textContent=signins.length;
 $('#t-cand').textContent=candidates.length;
-$('#t-done').textContent=completed.length;
+$('#t-done').textContent=effDone;
 $('#t-sw').textContent=candidates.reduce(function(s,c){return s+c.switches;},0);
 $('#t-paste').textContent=candidates.reduce(function(s,c){return s+c.paste_blocks;},0);
 $('#t-off').textContent=offsite.length;
