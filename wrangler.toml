@@ -24,6 +24,10 @@ ADMIN_KEY = "change-me-to-something-long"
 # instruction pages). Strikes are preserved across these, not reset.
 EXEMPT_PATHS = "/interview/audience"
 
+# Comma-separated path fragments treated as the "results/finished" page. Visiting
+# one (while logged in) logs a results_reached event = candidate completed.
+RESULTS_PATHS = "/interview/audience/results"
+
 # Approved on-site IPs. On the exempt pages above, a candidate whose IP is NOT
 # in this list sees an "off-site network" warning (logged, not blocking).
 # Edit anytime + redeploy. Leave empty to disable the geofence entirely.

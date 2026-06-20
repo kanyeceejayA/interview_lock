@@ -174,11 +174,18 @@ export default {
         .filter(Boolean);
       const ipAllowed = allowedIps.length === 0 || allowedIps.includes(clientIp);
       const ipWarn = isExempt && !ipAllowed;
+      // Results / completion pages: log when a candidate reaches them (= finished).
+      const resultsPaths = (env.RESULTS_PATHS || "/interview/audience/results")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      const isResults = resultsPaths.some((s) => p.includes(s));
       body = injectGuard(body, {
         maxStrikes,
         isAuthPage,
         isLogout,
         isExempt,
+        isResults,
         ipWarn,
         clientIp,
         supervisorPin: env.SUPERVISOR_PIN || "",
@@ -202,6 +209,7 @@ function injectGuard(html, opts) {
     .replace("__AUTH_PAGE__", opts.isAuthPage ? "true" : "false")
     .replace("__IS_LOGOUT__", opts.isLogout ? "true" : "false")
     .replace("__EXEMPT__", opts.isExempt ? "true" : "false")
+    .replace("__IS_RESULTS__", opts.isResults ? "true" : "false")
     .replace("__IP_WARN__", opts.ipWarn ? "true" : "false")
     .replace("__CLIENT_IP__", JSON.stringify(opts.clientIp || ""))
     .replace("__SUPERVISOR_PIN__", JSON.stringify(opts.supervisorPin || ""));
@@ -255,7 +263,7 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1f29
 .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
 .head h1{font-size:20px;margin:0}
 .actions button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
-.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px}
 .tile{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
 .tile .n{font-size:26px;font-weight:700}
 .tile .l{font-size:12px;color:var(--mut);margin-top:4px;text-transform:uppercase;letter-spacing:.04em}
@@ -273,13 +281,14 @@ tbody tr:hover{background:#f8fafc}
 .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}
 .pill.warn{background:#fef3c7;color:#92400e}.pill.bad{background:#fee2e2;color:#991b1b}.pill.ok{background:#dcfce7;color:#166534}
 .empty{padding:40px;text-align:center;color:var(--mut)}
-@media(max-width:760px){.tiles{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
 <div class="app">
   <aside class="side">
     <div class="brand"><b>Interview Lock</b><span>integrity dashboard</span></div>
     <nav class="nav">
+      <button data-v="dashboard"><span>Dashboard</span><span class="badge" id="b-dashboard"></span></button>
       <button data-v="candidates"><span>Candidates</span><span class="badge" id="b-candidates"></span></button>
+      <button data-v="completed"><span>Completed</span><span class="badge" id="b-completed"></span></button>
       <button data-v="events"><span>All events</span><span class="badge" id="b-events"></span></button>
       <button data-v="offsite"><span>Off-site warnings</span><span class="badge" id="b-offsite"></span></button>
       <button data-v="signins"><span>Sign-ins</span><span class="badge" id="b-signins"></span></button>
@@ -289,6 +298,7 @@ tbody tr:hover{background:#f8fafc}
     <div class="head"><h1 id="title"></h1><div class="actions"><button onclick="location.reload()">&#8635; Refresh</button></div></div>
     <div class="tiles">
       <div class="tile"><div class="n" id="t-cand">0</div><div class="l">Candidates</div></div>
+      <div class="tile"><div class="n" id="t-done">0</div><div class="l">Completed</div></div>
       <div class="tile"><div class="n" id="t-sw">0</div><div class="l">Tab switches</div></div>
       <div class="tile"><div class="n" id="t-paste">0</div><div class="l">Paste blocks</div></div>
       <div class="tile"><div class="n" id="t-off">0</div><div class="l">Off-site warnings</div></div>
@@ -321,10 +331,23 @@ DATA.forEach(function(e){
 var candidates=Object.keys(byEmail).map(function(k){return byEmail[k];});
 var signins=DATA.filter(function(e){return e.type==='login';});
 var offsite=DATA.filter(function(e){return e.type==='offsite_warning';});
+var completed=DATA.filter(function(e){return e.type==='results_reached';});
+var NOTABLE={tab_switch:1,clipboard_blocked:1,offsite_warning:1,supervisor_reset:1,results_reached:1};
+var notable=DATA.filter(function(e){return NOTABLE[e.type];});
+
+var LABELS={tab_switch:'Tab switch',clipboard_blocked:'Copy/paste blocked',offsite_warning:'Off-site network',supervisor_reset:'Supervisor reset',results_reached:'Reached results',login:'Sign-in'};
+function label(t){ return LABELS[t]||t; }
 
 function pill(v){ var cls=v>=5?'bad':(v>0?'warn':'ok'); return '<span class="pill '+cls+'">'+v+'</span>'; }
 
 var VIEWS={
+ dashboard:{title:'Notable events',rows:function(){return notable;},sort:{key:'ts',dir:-1},cols:[
+   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'email',label:'Email'},
+   {key:'type',label:'Event',fmt:label},
+   {key:'strikes',label:'Strike#',align:'center'},
+   {key:'ip',label:'IP'},
+   {key:'path',label:'Path'}]},
  candidates:{title:'Candidates',rows:function(){return candidates;},sort:{key:'last_ts',dir:-1},cols:[
    {key:'email',label:'Email'},
    {key:'max_strikes',label:'Max strikes',align:'center',fmt:pill},
@@ -333,10 +356,15 @@ var VIEWS={
    {key:'offsite',label:'Off-site',align:'center'},
    {key:'last_ip',label:'Last IP'},
    {key:'last_ts',label:'Last activity',fmt:fmt}]},
+ completed:{title:'Completed (reached results)',rows:function(){return completed;},sort:{key:'ts',dir:-1},cols:[
+   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'email',label:'Email'},
+   {key:'strikes',label:'Strikes at finish',align:'center'},
+   {key:'ip',label:'IP'}]},
  events:{title:'All events',rows:function(){return DATA;},sort:{key:'ts',dir:-1},types:true,cols:[
    {key:'ts',label:'Time (UTC)',fmt:fmt},
    {key:'email',label:'Email'},
-   {key:'type',label:'Event'},
+   {key:'type',label:'Event',fmt:label},
    {key:'strikes',label:'Strike#',align:'center'},
    {key:'ip',label:'IP'},
    {key:'path',label:'Path'}]},
@@ -379,15 +407,18 @@ $('#typeFilter').onchange=function(){state.type=this.value;render();};
 
 var types={}; DATA.forEach(function(e){if(e.type)types[e.type]=1;});
 $('#typeFilter').innerHTML='<option value="">All types</option>'+Object.keys(types).sort().map(function(t){return '<option value="'+esc(t)+'">'+esc(t)+'</option>';}).join('');
+$('#b-dashboard').textContent=notable.length;
 $('#b-candidates').textContent=candidates.length;
+$('#b-completed').textContent=completed.length;
 $('#b-events').textContent=DATA.length;
 $('#b-offsite').textContent=offsite.length;
 $('#b-signins').textContent=signins.length;
 $('#t-cand').textContent=candidates.length;
+$('#t-done').textContent=completed.length;
 $('#t-sw').textContent=candidates.reduce(function(s,c){return s+c.switches;},0);
 $('#t-paste').textContent=candidates.reduce(function(s,c){return s+c.paste_blocks;},0);
 $('#t-off').textContent=offsite.length;
-go('candidates');
+go('dashboard');
 </script></body></html>`;
 }
 
@@ -497,10 +528,11 @@ const GUARD = `
   var AUTH_PAGE = __AUTH_PAGE__;   // login / signup / logout screen
   var IS_LOGOUT = __IS_LOGOUT__;
   var EXEMPT = __EXEMPT__;         // waiting room etc. — don't count switches
+  var IS_RESULTS = __IS_RESULTS__; // results/completion page
   var IP_WARN = __IP_WARN__;       // candidate is off the approved network
   var CLIENT_IP = __CLIENT_IP__;
   var SUP_PIN = __SUPERVISOR_PIN__;
-  var SK = "lock_strikes", AK = "lock_authed", EK = "lock_email";
+  var SK = "lock_strikes", AK = "lock_authed", EK = "lock_email", RK = "lock_results_done";
   var ss = window.sessionStorage;
 
   function beacon(obj) {
@@ -524,8 +556,16 @@ const GUARD = `
     }
   }
 
+  // ---- completion tracking (results page) -----------------------------------
+  // Log once per session when an authenticated candidate reaches the results
+  // page — that's our signal they finished. Runs even though results is exempt.
+  if (IS_RESULTS && ss.getItem(AK) === "1" && !ss.getItem(RK)) {
+    ss.setItem(RK, "1");
+    beacon({ type: "results_reached", email: ss.getItem(EK) || "(unknown)", strikes: parseInt(ss.getItem(SK) || "0", 10), t: Date.now(), url: location.pathname });
+  }
+
   // ---- session lifecycle ----------------------------------------------------
-  if (IS_LOGOUT) { ss.removeItem(AK); ss.removeItem(EK); ss.removeItem(SK); }
+  if (IS_LOGOUT) { ss.removeItem(AK); ss.removeItem(EK); ss.removeItem(SK); ss.removeItem(RK); }
 
   if (AUTH_PAGE) {
     // Fresh start whenever we're on a login/signup screen.
@@ -543,6 +583,7 @@ const GUARD = `
       if (em) ss.setItem(EK, em);
       ss.setItem(AK, "1");
       ss.setItem(SK, "0");
+      ss.removeItem(RK);
       // Record the sign-in so we can cross-check who came through the proxy.
       beacon({ type: "login", email: em || "(unknown)", strikes: 0, t: Date.now(), url: location.pathname });
     }, true);
