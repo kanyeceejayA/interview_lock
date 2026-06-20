@@ -453,7 +453,8 @@ tbody tr:hover{background:#f8fafc}
         <h2>Shifts / batches</h2>
         <div class="scroll"><table class="mini resp"><thead><tr><th class="center">Shift</th>
           <th class="center">Started</th><th class="center">Completed</th>
-          <th class="center">Completion</th><th>Last activity</th></tr></thead>
+          <th class="center">Completion</th><th>Last activity</th>
+          <th>Expected completion</th></tr></thead>
           <tbody id="shiftBody"></tbody></table></div>
       </div>
       <div class="panel" style="margin-top:16px">
@@ -534,12 +535,13 @@ var effDone=candidates.length-inProgress;
 var shiftMap={};
 DATA.forEach(function(e){
   if(!e.shift) return;
-  var s=shiftMap[e.shift]||(shiftMap[e.shift]={shift:e.shift,started:{},completed:{},last_ts:0});
-  if(e.type==='interview_started') s.started[e.email]=1;
+  var s=shiftMap[e.shift]||(shiftMap[e.shift]={shift:e.shift,started:{},completed:{},last_ts:0,firstStart:0});
+  if(e.type==='interview_started'){ s.started[e.email]=1; if(e.ts&&(!s.firstStart||e.ts<s.firstStart)) s.firstStart=e.ts; }
   if(e.type==='results_reached') s.completed[e.email]=1;
   if((e.ts||0)>s.last_ts) s.last_ts=e.ts||0;
 });
-var shifts=Object.keys(shiftMap).map(function(k){ var s=shiftMap[k]; var st=Object.keys(s.started).length, cp=Object.keys(s.completed).length; return {shift:(/^\\d+$/.test(k)?+k:k), started:st, completed:cp, rate:(st?Math.round(cp/st*100)+'%':'—'), last_ts:s.last_ts}; });
+// Expected completion = first start of the batch + 31 min (lightweight: one lookup).
+var shifts=Object.keys(shiftMap).map(function(k){ var s=shiftMap[k]; var st=Object.keys(s.started).length, cp=Object.keys(s.completed).length; return {shift:(/^\\d+$/.test(k)?+k:k), started:st, completed:cp, rate:(st?Math.round(cp/st*100)+'%':'—'), last_ts:s.last_ts, expected:(s.firstStart?s.firstStart+31*60000:0)}; });
 
 var LABELS={tab_switch:'Tab switch',clipboard_blocked:'Copy/paste blocked',offsite_warning:'Off-site network',supervisor_reset:'Supervisor reset',results_reached:'Reached results',interview_started:'Interview started',login:'Sign-in'};
 function label(t){ return LABELS[t]||t; }
@@ -588,7 +590,8 @@ var VIEWS={
    {key:'started',label:'Started',align:'center'},
    {key:'completed',label:'Completed',align:'center'},
    {key:'rate',label:'Completion',align:'center'},
-   {key:'last_ts',label:'Last activity',fmt:fmt}]},
+   {key:'last_ts',label:'Last activity',fmt:fmt},
+   {key:'expected',label:'Expected completion',fmt:fmt}]},
  events:{title:'All events',rows:function(){return DATA;},sort:{key:'ts',dir:-1},types:true,cols:[
    {key:'ts',label:'Time (EAT)',fmt:fmt},
    {key:'email',label:'Email'},
@@ -664,8 +667,9 @@ function renderDashboard(){
       '<td data-label="Started" class="center">'+s.started+'</td>'+
       '<td data-label="Completed" class="center">'+s.completed+'</td>'+
       '<td data-label="Completion" class="center">'+esc(s.rate)+'</td>'+
-      '<td data-label="Last activity">'+esc(fmt(s.last_ts))+'</td></tr>';
-  }).join('') : '<tr><td colspan="5" class="empty">No shift data yet</td></tr>';
+      '<td data-label="Last activity">'+esc(fmt(s.last_ts))+'</td>'+
+      '<td data-label="Expected completion">'+esc(s.expected?fmt(s.expected):'—')+'</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="empty">No shift data yet</td></tr>';
 
   // tabbed infraction detail
   var infBy={tab_switch:[],clipboard_blocked:[],offsite_warning:[]};
