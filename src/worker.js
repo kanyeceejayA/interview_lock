@@ -392,6 +392,21 @@ tbody tr:hover{background:#f8fafc}
 .tl::before{content:"";position:absolute;left:-5px;top:3px;width:8px;height:8px;border-radius:50%;background:#cbd5e1}
 .tl .tlt{font-size:12px;color:var(--mut);margin-top:4px;word-break:break-all}
 @media(max-width:620px){.sheet{padding:18px}.avatar{width:52px;height:52px;flex-basis:52px;font-size:19px}.timeline{max-height:none}}
+/* quirks / superlatives */
+.quirks-panel h2 .count{color:#9ca3af;font-weight:400;font-size:12px}
+.quirks{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:12px}
+.quirk{position:relative;border-radius:14px;padding:15px 16px;color:#fff;overflow:hidden;min-height:108px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 4px 14px rgba(15,23,42,.12)}
+.quirk::after{content:"";position:absolute;right:-22px;top:-22px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,.14)}
+.quirk .ic{font-size:25px;line-height:1;position:relative;z-index:1}
+.quirk .ql{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;opacity:.92;font-weight:700}
+.quirk .qv{font-size:18px;font-weight:700;word-break:break-word;line-height:1.15;margin-top:2px}
+.quirk .qsub{font-size:11.5px;opacity:.85;word-break:break-all;margin-top:3px}
+.hours{display:flex;align-items:flex-end;gap:3px;height:104px;padding:6px 0 22px;position:relative}
+.hours .hbar{flex:1;background:linear-gradient(180deg,#93c5fd,#2563eb);border-radius:4px 4px 0 0;min-height:2px;position:relative;transition:filter .15s}
+.hours .hbar:hover{filter:brightness(1.12)}
+.hours .hbar.peak{background:linear-gradient(180deg,#fbbf24,#ea580c)}
+.hours .hbar span{position:absolute;bottom:-19px;left:-6px;right:-6px;text-align:center;font-size:9px;color:#9ca3af}
+@media(max-width:620px){.quirks{grid-template-columns:repeat(2,1fr)}.quirk{min-height:96px;padding:13px}.quirk .qv{font-size:16px}}
 </style></head><body>
 <div class="topbar">
   <button id="menuBtn" class="menu" aria-label="Open menu">&#9776;</button>
@@ -451,6 +466,12 @@ tbody tr:hover{background:#f8fafc}
           <th class="center">Strikes</th><th>IP</th><th>Path</th></tr></thead>
           <tbody id="infBody"></tbody></table></div>
       </div>
+      <div class="panel quirks-panel" style="margin-top:16px">
+        <h2>&#127881; Quirks &amp; superlatives <span class="count">a lighter look at the numbers</span></h2>
+        <div class="quirks" id="quirks"></div>
+        <h2 style="margin-top:22px">Activity by hour <span class="count" id="peakHour"></span></h2>
+        <div class="hours" id="hours"></div>
+      </div>
     </div>
     <div id="tableWrap">
       <div class="toolbar">
@@ -478,6 +499,8 @@ tbody tr:hover{background:#f8fafc}
 var DATA = ${payload};
 var $ = function(s){return document.querySelector(s)};
 function fmt(ts){ if(!ts) return ''; return new Date(ts+3*3600*1000).toISOString().replace('T',' ').slice(0,19); }
+function pad2(n){ return (n<10?'0':'')+n; }
+function dur(ms){ var s=Math.round(ms/1000); if(s<60) return s+'s'; var m=Math.floor(s/60); s=s%60; if(m<60) return m+'m'+(s?' '+s+'s':''); var h=Math.floor(m/60); m=m%60; return h+'h'+(m?' '+m+'m':''); }
 function esc(s){ s=(s==null?'':''+s); return s.replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 
 var byEmail={};
@@ -660,6 +683,73 @@ function renderDashboard(){
     b.onclick=function(){ renderInf(t); };
   });
   renderInf('tab_switch');
+
+  renderQuirks();
+}
+
+function renderQuirks(){
+  // finish duration = first interview_started -> last results_reached per email
+  var startTs={}, finishTs={};
+  DATA.forEach(function(e){
+    if(!e.email||e.email==='(unknown)') return;
+    if(e.type==='interview_started'){ if(!startTs[e.email]||e.ts<startTs[e.email]) startTs[e.email]=e.ts; }
+    if(e.type==='results_reached'){ if(!finishTs[e.email]||e.ts>finishTs[e.email]) finishTs[e.email]=e.ts; }
+  });
+  var durations=[];
+  Object.keys(finishTs).forEach(function(em){
+    if(startTs[em] && finishTs[em]>startTs[em]) durations.push({email:em, ms:finishTs[em]-startTs[em]});
+  });
+  durations.sort(function(a,b){return a.ms-b.ms;});
+
+  var cards=[];
+  function card(grad,ic,label,val,sub){ cards.push({grad:grad,ic:ic,label:label,val:val,sub:sub||''}); }
+  function top(arr,key){ var r=arr.slice().sort(function(a,b){return (b[key]||0)-(a[key]||0);})[0]; return (r&&r[key])?r:null; }
+
+  if(durations.length){
+    var f=durations[0];
+    card('linear-gradient(135deg,#f59e0b,#ef4444)','⚡','Fastest finish',dur(f.ms),f.email);
+    var sl=durations[durations.length-1];
+    if(durations.length>1) card('linear-gradient(135deg,#6366f1,#8b5cf6)','🐢','Took their time',dur(sl.ms),sl.email);
+    var avg=durations.reduce(function(s,d){return s+d.ms;},0)/durations.length;
+    card('linear-gradient(135deg,#0ea5e9,#2563eb)','⏱️','Average finish',dur(avg),durations.length+' timed run'+(durations.length===1?'':'s'));
+  } else {
+    card('linear-gradient(135deg,#94a3b8,#64748b)','⚡','Fastest finish','—','no timed finishes yet');
+  }
+
+  var ms=top(candidates,'switches');
+  if(ms) card('linear-gradient(135deg,#fb923c,#ea580c)','👀','Wandering eye',ms.switches+' switch'+(ms.switches===1?'':'es'),ms.email);
+  var mp=top(candidates,'paste_blocks');
+  if(mp) card('linear-gradient(135deg,#f472b6,#db2777)','📋','Copy-paste champ',mp.paste_blocks+' blocked',mp.email);
+  var mo=top(candidates,'offsite');
+  if(mo) card('linear-gradient(135deg,#a78bfa,#7c3aed)','🛰️','Furthest roamer',mo.offsite+' off-site',mo.email);
+
+  var clean=candidates.filter(function(c){return c.completed&&!c.max_strikes&&!c.switches&&!c.paste_blocks&&!c.offsite;});
+  card('linear-gradient(135deg,#34d399,#059669)','🧼','Flawless runs',clean.length?(''+clean.length):'0',clean.length?'finished with a clean sheet':'nobody clean yet');
+
+  var resets=DATA.filter(function(e){return e.type==='supervisor_reset';}).length;
+  if(resets) card('linear-gradient(135deg,#22d3ee,#0891b2)','🔓','Supervisor saves',''+resets,'strike resets granted');
+
+  var bsh=top(shifts,'started');
+  if(bsh) card('linear-gradient(135deg,#60a5fa,#1d4ed8)','🏆','Busiest shift','Shift '+bsh.shift,bsh.started+' started · '+bsh.completed+' done');
+
+  $('#quirks').innerHTML = cards.map(function(c){
+    return '<div class="quirk" style="background:'+c.grad+'"><div class="ic">'+c.ic+'</div>'+
+      '<div><div class="ql">'+esc(c.label)+'</div><div class="qv">'+esc(c.val)+'</div>'+
+      (c.sub?'<div class="qsub">'+esc(c.sub)+'</div>':'')+'</div></div>';
+  }).join('');
+
+  // activity by hour of day (EAT)
+  var hrs=new Array(24); for(var i=0;i<24;i++) hrs[i]=0;
+  DATA.forEach(function(e){ if(!e.ts) return; hrs[new Date(e.ts+3*3600*1000).getUTCHours()]++; });
+  var hmax=1, peak=0;
+  for(var h=0;h<24;h++){ if(hrs[h]>hmax) hmax=hrs[h]; if(hrs[h]>hrs[peak]) peak=hrs[h]>0?h:peak; }
+  var anyHr=hrs.some(function(v){return v>0;});
+  $('#peakHour').textContent = anyHr ? ('busiest around '+pad2(peak)+':00 EAT') : '';
+  $('#hours').innerHTML = hrs.map(function(v,h){
+    var pct=Math.round(v/hmax*100);
+    return '<div class="hbar'+(anyHr&&h===peak?' peak':'')+'" title="'+pad2(h)+':00 — '+v+' event'+(v===1?'':'s')+'" style="height:'+Math.max(pct,2)+'%">'+
+      (h%6===0?'<span>'+pad2(h)+'</span>':'')+'</div>';
+  }).join('');
 }
 
 function go(view){
