@@ -264,13 +264,30 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1f29
 .head h1{font-size:20px;margin:0}
 .actions button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px}
-.tile{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.tile{background:#fff;border:1px solid var(--line);border-left:4px solid #cbd5e1;border-radius:12px;padding:16px 18px}
 .tile .n{font-size:26px;font-weight:700}
 .tile .l{font-size:12px;color:var(--mut);margin-top:4px;text-transform:uppercase;letter-spacing:.04em}
-.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:10px}
-.toolbar input,.toolbar select{border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px}
-.toolbar input{flex:1;max-width:340px}
+.tile.cand{border-left-color:#2563eb}.tile.cand .n{color:#2563eb}
+.tile.done{border-left-color:#16a34a}.tile.done .n{color:#16a34a}
+.tile.sw{border-left-color:#d97706}.tile.sw .n{color:#d97706}
+.tile.paste{border-left-color:#ea580c}.tile.paste .n{color:#ea580c}
+.tile.off{border-left-color:#7c3aed}.tile.off .n{color:#7c3aed}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+.toolbar input{border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px;flex:1;max-width:340px}
 .toolbar .count{color:var(--mut);font-size:13px;margin-left:auto}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 12px;font-size:13px;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+.chip:hover{background:#f8fafc}
+.chip.active{background:#111827;color:#fff;border-color:#111827}
+.chip .c{opacity:.65;font-size:12px}
+.pill.ev{font-weight:600}
+.ev-tab_switch{background:#fee2e2;color:#991b1b}
+.ev-clipboard_blocked{background:#ffedd5;color:#9a3412}
+.ev-offsite_warning{background:#ede9fe;color:#5b21b6}
+.ev-supervisor_reset{background:#dbeafe;color:#1e40af}
+.ev-results_reached{background:#dcfce7;color:#166534}
+.ev-login{background:#f1f5f9;color:#475569}
+.dash{color:#cbd5e1}
 .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:auto}
 table{border-collapse:collapse;width:100%;font-size:14px}
 thead th{background:#f9fafb;text-align:left;padding:11px 14px;font-size:12px;color:#374151;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;position:sticky;top:0}
@@ -297,17 +314,17 @@ tbody tr:hover{background:#f8fafc}
   <main class="main">
     <div class="head"><h1 id="title"></h1><div class="actions"><button onclick="location.reload()">&#8635; Refresh</button></div></div>
     <div class="tiles">
-      <div class="tile"><div class="n" id="t-cand">0</div><div class="l">Candidates</div></div>
-      <div class="tile"><div class="n" id="t-done">0</div><div class="l">Completed</div></div>
-      <div class="tile"><div class="n" id="t-sw">0</div><div class="l">Tab switches</div></div>
-      <div class="tile"><div class="n" id="t-paste">0</div><div class="l">Paste blocks</div></div>
-      <div class="tile"><div class="n" id="t-off">0</div><div class="l">Off-site warnings</div></div>
+      <div class="tile cand"><div class="n" id="t-cand">0</div><div class="l">Candidates</div></div>
+      <div class="tile done"><div class="n" id="t-done">0</div><div class="l">Completed</div></div>
+      <div class="tile sw"><div class="n" id="t-sw">0</div><div class="l">Tab switches</div></div>
+      <div class="tile paste"><div class="n" id="t-paste">0</div><div class="l">Paste blocks</div></div>
+      <div class="tile off"><div class="n" id="t-off">0</div><div class="l">Off-site warnings</div></div>
     </div>
     <div class="toolbar">
       <input id="search" placeholder="Search...">
-      <select id="typeFilter"></select>
       <span class="count" id="count"></span>
     </div>
+    <div class="chips" id="chips"></div>
     <div class="card"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
   </main>
 </div>
@@ -320,11 +337,12 @@ function esc(s){ s=(s==null?'':''+s); return s.replace(/[&<>"]/g,function(c){ret
 var byEmail={};
 DATA.forEach(function(e){
   var k=e.email||'(unknown)';
-  var c=byEmail[k]||(byEmail[k]={email:k,max_strikes:0,switches:0,paste_blocks:0,offsite:0,last_ip:'',last_ts:0});
+  var c=byEmail[k]||(byEmail[k]={email:k,max_strikes:0,switches:0,paste_blocks:0,offsite:0,completed:0,last_ip:'',last_ts:0});
   if((e.strikes||0)>c.max_strikes)c.max_strikes=e.strikes||0;
   if(e.type==='tab_switch')c.switches++;
   if(e.type==='clipboard_blocked'||(e.type&&e.type.indexOf('paste')>=0))c.paste_blocks++;
   if(e.type==='offsite_warning')c.offsite++;
+  if(e.type==='results_reached')c.completed=1;
   if((e.ts||0)>c.last_ts)c.last_ts=e.ts||0;
   if(e.ip&&!c.last_ip)c.last_ip=e.ip;
 });
@@ -337,19 +355,21 @@ var notable=DATA.filter(function(e){return NOTABLE[e.type];});
 
 var LABELS={tab_switch:'Tab switch',clipboard_blocked:'Copy/paste blocked',offsite_warning:'Off-site network',supervisor_reset:'Supervisor reset',results_reached:'Reached results',login:'Sign-in'};
 function label(t){ return LABELS[t]||t; }
+function typePill(t){ return '<span class="pill ev ev-'+t+'">'+esc(label(t))+'</span>'; }
+function donePill(v){ return v?'<span class="pill ok">&#10003; Finished</span>':'<span class="dash">&mdash;</span>'; }
 
 function pill(v){ var cls=v>=5?'bad':(v>0?'warn':'ok'); return '<span class="pill '+cls+'">'+v+'</span>'; }
 
 var VIEWS={
- dashboard:{title:'Notable events',rows:function(){return notable;},sort:{key:'ts',dir:-1},cols:[
+ dashboard:{title:'Notable events',rows:function(){return notable;},sort:{key:'ts',dir:-1},types:true,cols:[
    {key:'ts',label:'Time (UTC)',fmt:fmt},
    {key:'email',label:'Email'},
-   {key:'type',label:'Event',fmt:label},
+   {key:'type',label:'Event',fmt:typePill},
    {key:'strikes',label:'Strike#',align:'center'},
-   {key:'ip',label:'IP'},
-   {key:'path',label:'Path'}]},
+   {key:'ip',label:'IP'}]},
  candidates:{title:'Candidates',rows:function(){return candidates;},sort:{key:'last_ts',dir:-1},cols:[
    {key:'email',label:'Email'},
+   {key:'completed',label:'Finished',align:'center',fmt:donePill},
    {key:'max_strikes',label:'Max strikes',align:'center',fmt:pill},
    {key:'switches',label:'Tab switches',align:'center'},
    {key:'paste_blocks',label:'Paste blocks',align:'center'},
@@ -364,7 +384,7 @@ var VIEWS={
  events:{title:'All events',rows:function(){return DATA;},sort:{key:'ts',dir:-1},types:true,cols:[
    {key:'ts',label:'Time (UTC)',fmt:fmt},
    {key:'email',label:'Email'},
-   {key:'type',label:'Event',fmt:label},
+   {key:'type',label:'Event',fmt:typePill},
    {key:'strikes',label:'Strike#',align:'center'},
    {key:'ip',label:'IP'},
    {key:'path',label:'Path'}]},
@@ -381,12 +401,26 @@ var VIEWS={
 
 var state={view:'candidates',sortKey:null,sortDir:-1,q:'',type:''};
 
+function renderChips(v, all){
+  var box=$('#chips');
+  if(!v.types){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='flex';
+  var counts={}; all.forEach(function(r){counts[r.type]=(counts[r.type]||0)+1;});
+  var ts=Object.keys(counts).sort();
+  var h='<button class="chip'+(state.type===''?' active':'')+'" data-t="">All <span class="c">'+all.length+'</span></button>';
+  h+=ts.map(function(t){ return '<button class="chip'+(state.type===t?' active':'')+'" data-t="'+esc(t)+'">'+typePill(t)+' <span class="c">'+counts[t]+'</span></button>'; }).join('');
+  box.innerHTML=h;
+  Array.prototype.forEach.call(box.querySelectorAll('.chip'),function(b){ b.onclick=function(){ state.type=b.getAttribute('data-t'); render(); }; });
+}
+
 function render(){
   var v=VIEWS[state.view];
+  var all=v.rows();
+  renderChips(v, all);
   var key=state.sortKey||v.sort.key, dir=state.sortDir;
-  var rows=v.rows().slice();
-  if(state.q){ var q=state.q.toLowerCase(); rows=rows.filter(function(r){ return v.cols.some(function(c){ return (''+(r[c.key]==null?'':r[c.key])).toLowerCase().indexOf(q)>=0; }); }); }
+  var rows=all.slice();
   if(v.types && state.type){ rows=rows.filter(function(r){return r.type===state.type;}); }
+  if(state.q){ var q=state.q.toLowerCase(); rows=rows.filter(function(r){ return v.cols.some(function(c){ return (''+(r[c.key]==null?'':r[c.key])).toLowerCase().indexOf(q)>=0; }); }); }
   rows.sort(function(a,b){ var x=a[key],y=b[key]; if(typeof x==='number'||typeof y==='number'){x=+x||0;y=+y||0;} else {x=(''+(x||'')).toLowerCase();y=(''+(y||'')).toLowerCase();} return x<y?-dir:(x>y?dir:0); });
   var thead='<tr>'+v.cols.map(function(c){ var ar=(key===c.key)?(dir<0?'\\u25BC':'\\u25B2'):''; return '<th data-k="'+c.key+'" class="'+(c.align==='center'?'center':'')+'">'+esc(c.label)+' <span class="ar">'+ar+'</span></th>'; }).join('')+'</tr>';
   var body=rows.length? rows.map(function(r){ return '<tr>'+v.cols.map(function(c){ var val=r[c.key]; var disp=c.fmt?c.fmt(val):esc(val==null?'':val); return '<td class="'+(c.align==='center'?'center':'')+'">'+disp+'</td>'; }).join('')+'</tr>'; }).join('') : '<tr><td class="empty" colspan="'+v.cols.length+'">Nothing here yet</td></tr>';
@@ -394,19 +428,15 @@ function render(){
   $('#count').textContent=rows.length+' row'+(rows.length===1?'':'s');
   $('#thead').innerHTML=thead;
   $('#tbody').innerHTML=body;
-  $('#typeFilter').style.display=v.types?'':'none';
   Array.prototype.forEach.call(document.querySelectorAll('.nav button'),function(b){ b.classList.toggle('active', b.getAttribute('data-v')===state.view); });
   Array.prototype.forEach.call(document.querySelectorAll('#thead th'),function(th){ th.onclick=function(){ var k=th.getAttribute('data-k'); var eff=state.sortKey||v.sort.key; if(k===eff){state.sortDir=-state.sortDir;}else{state.sortDir=-1;} state.sortKey=k; render(); }; });
 }
 
-function go(view){ state.view=view; state.sortKey=null; state.sortDir=VIEWS[view].sort.dir; state.q=''; state.type=''; $('#search').value=''; $('#typeFilter').value=''; render(); }
+function go(view){ state.view=view; state.sortKey=null; state.sortDir=VIEWS[view].sort.dir; state.q=''; state.type=''; $('#search').value=''; render(); }
 
 Array.prototype.forEach.call(document.querySelectorAll('.nav button'),function(b){ b.onclick=function(){go(b.getAttribute('data-v'));}; });
 $('#search').oninput=function(){state.q=this.value;render();};
-$('#typeFilter').onchange=function(){state.type=this.value;render();};
 
-var types={}; DATA.forEach(function(e){if(e.type)types[e.type]=1;});
-$('#typeFilter').innerHTML='<option value="">All types</option>'+Object.keys(types).sort().map(function(t){return '<option value="'+esc(t)+'">'+esc(t)+'</option>';}).join('');
 $('#b-dashboard').textContent=notable.length;
 $('#b-candidates').textContent=candidates.length;
 $('#b-completed').textContent=completed.length;
@@ -497,8 +527,9 @@ const GUARD = `
 <div id="lock-ipwarn" role="alertdialog" aria-live="assertive">
   <div class="box">
     <h1>⚠ Off-site network detected</h1>
-    <p>You appear to be taking this interview from outside the approved
-       interview location. This has been recorded. If this is a mistake,
+    <p>You appear to be outside the conference hall.
+       <strong>Any interview taken outside the conference hall will not be
+       counted.</strong> This has been recorded — if this is a mistake,
        notify your supervisor.</p>
     <button id="lock-ipwarn-ok" type="button">I understand</button>
     <p class="ip">Your network address: <span id="lock-ipwarn-ip"></span></p>
