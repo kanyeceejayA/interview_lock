@@ -155,10 +155,18 @@ export default {
         isLogout ||
         p === ENTRY.toLowerCase() ||
         /\/users\/login|\/login\b|\/signup|\/auth\//.test(p);
+      // Pages where we DON'T count switches (e.g. the pre-interview waiting room
+      // candidates sit on for a while). Strikes are preserved, not reset.
+      const exemptPaths = (env.EXEMPT_PATHS || "/interview/audience")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      const isExempt = exemptPaths.some((s) => p.includes(s));
       body = injectGuard(body, {
         maxStrikes,
         isAuthPage,
         isLogout,
+        isExempt,
         supervisorPin: env.SUPERVISOR_PIN || "",
       });
     }
@@ -179,6 +187,7 @@ function injectGuard(html, opts) {
   const snippet = GUARD.replace("__MAX_STRIKES__", String(opts.maxStrikes))
     .replace("__AUTH_PAGE__", opts.isAuthPage ? "true" : "false")
     .replace("__IS_LOGOUT__", opts.isLogout ? "true" : "false")
+    .replace("__EXEMPT__", opts.isExempt ? "true" : "false")
     .replace("__SUPERVISOR_PIN__", JSON.stringify(opts.supervisorPin || ""));
   if (html.includes("</body>")) return html.replace("</body>", snippet + "</body>");
   if (html.includes("</html>")) return html.replace("</html>", snippet + "</html>");
@@ -319,6 +328,7 @@ const GUARD = `
   var MAX = __MAX_STRIKES__;
   var AUTH_PAGE = __AUTH_PAGE__;   // login / signup / logout screen
   var IS_LOGOUT = __IS_LOGOUT__;
+  var EXEMPT = __EXEMPT__;         // waiting room etc. — don't count switches
   var SUP_PIN = __SUPERVISOR_PIN__;
   var SK = "lock_strikes", AK = "lock_authed", EK = "lock_email";
   var ss = window.sessionStorage;
@@ -344,6 +354,10 @@ const GUARD = `
     }, true);
     return; // no copy/paste blocking or switch detection on the login screen
   }
+
+  // Exempt pages (e.g. the pre-interview waiting room): pause enforcement but
+  // KEEP the current strike count so it carries into the interview itself.
+  if (EXEMPT) return;
 
   // Past here = a normal (post-login) page. Only enforce if authenticated.
   if (ss.getItem(AK) !== "1") return;
