@@ -288,6 +288,17 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1f29
 .ev-results_reached{background:#dcfce7;color:#166534}
 .ev-login{background:#f1f5f9;color:#475569}
 .dash{color:#cbd5e1}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}
+.panel h2{font-size:14px;margin:0 0 14px;color:#374151}
+.panel h2 .count{float:right;font-weight:400}
+.mini{width:100%;font-size:13px;border-collapse:collapse}
+.mini th{font-size:12px;color:#6b7280;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.mini td{padding:9px 8px;border-bottom:1px solid #f1f5f9}
+.brow{display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px}
+.bar{height:10px;border-radius:6px;background:#f1f5f9;overflow:hidden;margin-bottom:16px}
+.bar>i{display:block;height:100%}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
 .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:auto}
 table{border-collapse:collapse;width:100%;font-size:14px}
 thead th{background:#f9fafb;text-align:left;padding:11px 14px;font-size:12px;color:#374151;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;position:sticky;top:0}
@@ -320,12 +331,29 @@ tbody tr:hover{background:#f8fafc}
       <div class="tile paste"><div class="n" id="t-paste">0</div><div class="l">Paste blocks</div></div>
       <div class="tile off"><div class="n" id="t-off">0</div><div class="l">Off-site warnings</div></div>
     </div>
-    <div class="toolbar">
-      <input id="search" placeholder="Search...">
-      <span class="count" id="count"></span>
+    <div id="summary">
+      <div class="grid2">
+        <div class="panel">
+          <h2>Needs attention <span class="count" id="flaggedCount"></span></h2>
+          <table class="mini"><thead><tr><th>Email</th><th class="center">Strikes</th>
+            <th class="center">Switches</th><th class="center">Paste</th>
+            <th class="center">Off-site</th><th class="center">Finished</th></tr></thead>
+            <tbody id="flagged"></tbody></table>
+        </div>
+        <div>
+          <div class="panel"><h2>Infraction breakdown</h2><div id="breakdown"></div></div>
+          <div class="panel" style="margin-top:16px"><h2>Completion</h2><div id="progress"></div></div>
+        </div>
+      </div>
     </div>
-    <div class="chips" id="chips"></div>
-    <div class="card"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+    <div id="tableWrap">
+      <div class="toolbar">
+        <input id="search" placeholder="Search...">
+        <span class="count" id="count"></span>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="card"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+    </div>
   </main>
 </div>
 <script>
@@ -350,8 +378,10 @@ var candidates=Object.keys(byEmail).map(function(k){return byEmail[k];});
 var signins=DATA.filter(function(e){return e.type==='login';});
 var offsite=DATA.filter(function(e){return e.type==='offsite_warning';});
 var completed=DATA.filter(function(e){return e.type==='results_reached';});
-var NOTABLE={tab_switch:1,clipboard_blocked:1,offsite_warning:1,supervisor_reset:1,results_reached:1};
-var notable=DATA.filter(function(e){return NOTABLE[e.type];});
+var flagged=candidates.filter(function(c){return c.max_strikes||c.switches||c.paste_blocks||c.offsite;});
+var totSw=candidates.reduce(function(s,c){return s+c.switches;},0);
+var totPaste=candidates.reduce(function(s,c){return s+c.paste_blocks;},0);
+var doneCount=candidates.filter(function(c){return c.completed;}).length;
 
 var LABELS={tab_switch:'Tab switch',clipboard_blocked:'Copy/paste blocked',offsite_warning:'Off-site network',supervisor_reset:'Supervisor reset',results_reached:'Reached results',login:'Sign-in'};
 function label(t){ return LABELS[t]||t; }
@@ -361,12 +391,6 @@ function donePill(v){ return v?'<span class="pill ok">&#10003; Finished</span>':
 function pill(v){ var cls=v>=5?'bad':(v>0?'warn':'ok'); return '<span class="pill '+cls+'">'+v+'</span>'; }
 
 var VIEWS={
- dashboard:{title:'Notable events',rows:function(){return notable;},sort:{key:'ts',dir:-1},types:true,cols:[
-   {key:'ts',label:'Time (UTC)',fmt:fmt},
-   {key:'email',label:'Email'},
-   {key:'type',label:'Event',fmt:typePill},
-   {key:'strikes',label:'Strike#',align:'center'},
-   {key:'ip',label:'IP'}]},
  candidates:{title:'Candidates',rows:function(){return candidates;},sort:{key:'last_ts',dir:-1},cols:[
    {key:'email',label:'Email'},
    {key:'completed',label:'Finished',align:'center',fmt:donePill},
@@ -432,12 +456,33 @@ function render(){
   Array.prototype.forEach.call(document.querySelectorAll('#thead th'),function(th){ th.onclick=function(){ var k=th.getAttribute('data-k'); var eff=state.sortKey||v.sort.key; if(k===eff){state.sortDir=-state.sortDir;}else{state.sortDir=-1;} state.sortKey=k; render(); }; });
 }
 
-function go(view){ state.view=view; state.sortKey=null; state.sortDir=VIEWS[view].sort.dir; state.q=''; state.type=''; $('#search').value=''; render(); }
+function bar(lbl,val,max,color){ var w=Math.round(val/(max||1)*100); return '<div class="brow"><span>'+lbl+'</span><b>'+val+'</b></div><div class="bar"><i style="width:'+w+'%;background:'+color+'"></i></div>'; }
+
+function renderDashboard(){
+  var fl=flagged.slice().sort(function(a,b){ return (b.max_strikes-a.max_strikes) || ((b.switches+b.paste_blocks+b.offsite)-(a.switches+a.paste_blocks+a.offsite)); });
+  $('#flaggedCount').textContent=fl.length+' candidate'+(fl.length===1?'':'s');
+  $('#flagged').innerHTML = fl.length ? fl.map(function(c){
+    return '<tr><td>'+esc(c.email)+'</td><td class="center">'+pill(c.max_strikes)+'</td>'+
+      '<td class="center">'+c.switches+'</td><td class="center">'+c.paste_blocks+'</td>'+
+      '<td class="center">'+c.offsite+'</td><td class="center">'+donePill(c.completed)+'</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="empty">No infractions yet</td></tr>';
+  var mx=Math.max(totSw,totPaste,offsite.length,1);
+  $('#breakdown').innerHTML=bar('Tab switches',totSw,mx,'#d97706')+bar('Copy/paste blocks',totPaste,mx,'#ea580c')+bar('Off-site attempts',offsite.length,mx,'#7c3aed');
+  $('#progress').innerHTML=bar('Finished '+doneCount+' / '+candidates.length,doneCount,candidates.length,'#16a34a');
+}
+
+function go(view){
+  state.view=view; state.sortKey=null; state.q=''; state.type=''; $('#search').value='';
+  Array.prototype.forEach.call(document.querySelectorAll('.nav button'),function(b){ b.classList.toggle('active', b.getAttribute('data-v')===view); });
+  if(view==='dashboard'){ $('#summary').style.display=''; $('#tableWrap').style.display='none'; renderDashboard(); return; }
+  $('#summary').style.display='none'; $('#tableWrap').style.display='';
+  state.sortDir=VIEWS[view].sort.dir; render();
+}
 
 Array.prototype.forEach.call(document.querySelectorAll('.nav button'),function(b){ b.onclick=function(){go(b.getAttribute('data-v'));}; });
 $('#search').oninput=function(){state.q=this.value;render();};
 
-$('#b-dashboard').textContent=notable.length;
+$('#b-dashboard').textContent=flagged.length;
 $('#b-candidates').textContent=candidates.length;
 $('#b-completed').textContent=completed.length;
 $('#b-events').textContent=DATA.length;
