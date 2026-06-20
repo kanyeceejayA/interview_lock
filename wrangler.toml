@@ -1,0 +1,10 @@
+name = "interview-lock"
+main = "src/worker.js"
+compatibility_date = "2025-06-01"
+
+# Deploys to https://interview-lock.<your-subdomain>.workers.dev for free.
+# To use a custom domain instead, add a [[routes]] / custom_domain block here.
+
+[vars]
+# Number of tab/app-switch warnings before the hard "blocked" screen shows.
+MAX_STRIKES = "3"

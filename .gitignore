@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+dist/
+.dev.vars
+.env
+*.log
+interview-qr.png
+.DS_Store
