@@ -38,7 +38,7 @@ export default {
       if (env.DB) {
         try {
           await env.DB.prepare(
-            "INSERT INTO events (ts, email, type, strikes, path, ip) VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO events (ts, email, type, strikes, path, ip, shift) VALUES (?, ?, ?, ?, ?, ?, ?)"
           )
             .bind(
               Date.now(),
@@ -46,7 +46,8 @@ export default {
               String(data.type || "?").slice(0, 40),
               parseInt(data.strikes, 10) || 0,
               String(data.url || "").slice(0, 300),
-              ip.slice(0, 64)
+              ip.slice(0, 64),
+              String(data.shift || "").slice(0, 32)
             )
             .run();
         } catch (e) {
@@ -175,17 +176,24 @@ export default {
       const ipAllowed = allowedIps.length === 0 || allowedIps.includes(clientIp);
       const ipWarn = isExempt && !ipAllowed;
       // Results / completion pages: log when a candidate reaches them (= finished).
-      const resultsPaths = (env.RESULTS_PATHS || "/interview/audience/results")
+      const resultsPaths = (env.RESULTS_PATHS || "audience/results")
         .split(",")
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
       const isResults = resultsPaths.some((s) => p.includes(s));
+      // Interview start pages, e.g. audience/interview/276 (276 = shift/batch id).
+      const interviewPaths = (env.INTERVIEW_PATHS || "audience/interview")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      const isInterview = interviewPaths.some((s) => p.includes(s));
       body = injectGuard(body, {
         maxStrikes,
         isAuthPage,
         isLogout,
         isExempt,
         isResults,
+        isInterview,
         ipWarn,
         clientIp,
         supervisorPin: env.SUPERVISOR_PIN || "",
@@ -210,6 +218,7 @@ function injectGuard(html, opts) {
     .replace("__IS_LOGOUT__", opts.isLogout ? "true" : "false")
     .replace("__EXEMPT__", opts.isExempt ? "true" : "false")
     .replace("__IS_RESULTS__", opts.isResults ? "true" : "false")
+    .replace("__IS_INTERVIEW__", opts.isInterview ? "true" : "false")
     .replace("__IP_WARN__", opts.ipWarn ? "true" : "false")
     .replace("__CLIENT_IP__", JSON.stringify(opts.clientIp || ""))
     .replace("__SUPERVISOR_PIN__", JSON.stringify(opts.supervisorPin || ""));
@@ -229,7 +238,7 @@ async function renderAdmin(url, env) {
   let events = [];
   try {
     const r = await env.DB.prepare(
-      "SELECT ts, email, type, strikes, path, ip FROM events ORDER BY ts DESC LIMIT 5000"
+      "SELECT ts, email, type, strikes, path, ip, shift FROM events ORDER BY ts DESC LIMIT 5000"
     ).all();
     events = r.results || [];
   } catch (e) {
@@ -290,6 +299,7 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1f29
 .ev-offsite_warning{background:#ede9fe;color:#5b21b6}
 .ev-supervisor_reset{background:#dbeafe;color:#1e40af}
 .ev-results_reached{background:#dcfce7;color:#166534}
+.ev-interview_started{background:#cffafe;color:#155e75}
 .ev-login{background:#f1f5f9;color:#475569}
 .dash{color:#cbd5e1}
 .grid2{display:grid;grid-template-columns:2fr 1fr;gap:16px}
@@ -388,6 +398,7 @@ tbody tr:hover{background:#f8fafc}
       <button data-v="dashboard"><span>Dashboard</span><span class="badge" id="b-dashboard"></span></button>
       <button data-v="candidates"><span>Candidates</span><span class="badge" id="b-candidates"></span></button>
       <button data-v="completed"><span>Completed</span><span class="badge" id="b-completed"></span></button>
+      <button data-v="shifts"><span>Shifts</span><span class="badge" id="b-shifts"></span></button>
       <button data-v="events"><span>All events</span><span class="badge" id="b-events"></span></button>
       <button data-v="offsite"><span>Off-site warnings</span><span class="badge" id="b-offsite"></span></button>
       <button data-v="signins"><span>Sign-ins</span><span class="badge" id="b-signins"></span></button>
@@ -415,6 +426,13 @@ tbody tr:hover{background:#f8fafc}
           <div class="panel"><h2>Infraction breakdown</h2><div id="breakdown"></div></div>
           <div class="panel" style="margin-top:16px"><h2>Completion</h2><div id="progress"></div></div>
         </div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <h2>Shifts / batches</h2>
+        <div class="scroll"><table class="mini resp"><thead><tr><th class="center">Shift</th>
+          <th class="center">Started</th><th class="center">Completed</th>
+          <th class="center">Completion</th><th>Last activity</th></tr></thead>
+          <tbody id="shiftBody"></tbody></table></div>
       </div>
       <div class="panel" style="margin-top:16px">
         <div class="tabs" id="infTabs">
@@ -476,7 +494,18 @@ var totSw=candidates.reduce(function(s,c){return s+c.switches;},0);
 var totPaste=candidates.reduce(function(s,c){return s+c.paste_blocks;},0);
 var doneCount=candidates.filter(function(c){return c.completed;}).length;
 
-var LABELS={tab_switch:'Tab switch',clipboard_blocked:'Copy/paste blocked',offsite_warning:'Off-site network',supervisor_reset:'Supervisor reset',results_reached:'Reached results',login:'Sign-in'};
+// shifts/batches keyed by the trailing id in the URL
+var shiftMap={};
+DATA.forEach(function(e){
+  if(!e.shift) return;
+  var s=shiftMap[e.shift]||(shiftMap[e.shift]={shift:e.shift,started:{},completed:{},last_ts:0});
+  if(e.type==='interview_started') s.started[e.email]=1;
+  if(e.type==='results_reached') s.completed[e.email]=1;
+  if((e.ts||0)>s.last_ts) s.last_ts=e.ts||0;
+});
+var shifts=Object.keys(shiftMap).map(function(k){ var s=shiftMap[k]; var st=Object.keys(s.started).length, cp=Object.keys(s.completed).length; return {shift:(/^\\d+$/.test(k)?+k:k), started:st, completed:cp, rate:(st?Math.round(cp/st*100)+'%':'—'), last_ts:s.last_ts}; });
+
+var LABELS={tab_switch:'Tab switch',clipboard_blocked:'Copy/paste blocked',offsite_warning:'Off-site network',supervisor_reset:'Supervisor reset',results_reached:'Reached results',interview_started:'Interview started',login:'Sign-in'};
 function label(t){ return LABELS[t]||t; }
 function typePill(t){ return '<span class="pill ev ev-'+t+'">'+esc(label(t))+'</span>'; }
 function donePill(v){ return v?'<span class="pill ok">&#10003; Finished</span>':'<span class="dash">&mdash;</span>'; }
@@ -515,12 +544,20 @@ var VIEWS={
  completed:{title:'Completed (reached results)',rows:function(){return completed;},sort:{key:'ts',dir:-1},cols:[
    {key:'ts',label:'Time (EAT)',fmt:fmt},
    {key:'email',label:'Email'},
+   {key:'shift',label:'Shift',align:'center'},
    {key:'strikes',label:'Strikes at finish',align:'center'},
    {key:'ip',label:'IP'}]},
+ shifts:{title:'Shifts / batches',rows:function(){return shifts;},sort:{key:'shift',dir:-1},cols:[
+   {key:'shift',label:'Shift',align:'center'},
+   {key:'started',label:'Started',align:'center'},
+   {key:'completed',label:'Completed',align:'center'},
+   {key:'rate',label:'Completion',align:'center'},
+   {key:'last_ts',label:'Last activity',fmt:fmt}]},
  events:{title:'All events',rows:function(){return DATA;},sort:{key:'ts',dir:-1},types:true,cols:[
    {key:'ts',label:'Time (EAT)',fmt:fmt},
    {key:'email',label:'Email'},
    {key:'type',label:'Event',fmt:typePill},
+   {key:'shift',label:'Shift',align:'center'},
    {key:'strikes',label:'Strike#',align:'center'},
    {key:'ip',label:'IP'},
    {key:'path',label:'Path'}]},
@@ -583,6 +620,16 @@ function renderDashboard(){
   $('#breakdown').innerHTML=bar('Tab switches',totSw,mx,'#d97706')+bar('Copy/paste blocks',totPaste,mx,'#ea580c')+bar('Off-site attempts',offsite.length,mx,'#7c3aed');
   $('#progress').innerHTML=bar('Finished '+doneCount+' / '+candidates.length,doneCount,candidates.length,'#16a34a');
 
+  // shifts panel
+  var sh=shifts.slice().sort(function(a,b){return b.shift-a.shift;});
+  $('#shiftBody').innerHTML = sh.length ? sh.map(function(s){
+    return '<tr><td data-label="Shift" class="center"><b>'+esc(s.shift)+'</b></td>'+
+      '<td data-label="Started" class="center">'+s.started+'</td>'+
+      '<td data-label="Completed" class="center">'+s.completed+'</td>'+
+      '<td data-label="Completion" class="center">'+esc(s.rate)+'</td>'+
+      '<td data-label="Last activity">'+esc(fmt(s.last_ts))+'</td></tr>';
+  }).join('') : '<tr><td colspan="5" class="empty">No shift data yet</td></tr>';
+
   // tabbed infraction detail
   var infBy={tab_switch:[],clipboard_blocked:[],offsite_warning:[]};
   DATA.forEach(function(e){ if(infBy[e.type]) infBy[e.type].push(e); });
@@ -625,6 +672,7 @@ $('#search').oninput=function(){state.q=this.value;render();};
 $('#b-dashboard').textContent=flagged.length;
 $('#b-candidates').textContent=candidates.length;
 $('#b-completed').textContent=completed.length;
+$('#b-shifts').textContent=shifts.length;
 $('#b-events').textContent=DATA.length;
 $('#b-offsite').textContent=offsite.length;
 $('#b-signins').textContent=signins.length;
@@ -745,10 +793,12 @@ const GUARD = `
   var IS_LOGOUT = __IS_LOGOUT__;
   var EXEMPT = __EXEMPT__;         // waiting room etc. — don't count switches
   var IS_RESULTS = __IS_RESULTS__; // results/completion page
+  var IS_INTERVIEW = __IS_INTERVIEW__; // interview-start page
   var IP_WARN = __IP_WARN__;       // candidate is off the approved network
   var CLIENT_IP = __CLIENT_IP__;
   var SUP_PIN = __SUPERVISOR_PIN__;
-  var SK = "lock_strikes", AK = "lock_authed", EK = "lock_email", RK = "lock_results_done";
+  var SK = "lock_strikes", AK = "lock_authed", EK = "lock_email", RK = "lock_results_done", IK = "lock_started_done";
+  var SHIFT = (location.pathname.match(/(\\d+)\\/?$/) || [])[1] || "";
   var ss = window.sessionStorage;
 
   function beacon(obj) {
@@ -772,16 +822,20 @@ const GUARD = `
     }
   }
 
-  // ---- completion tracking (results page) -----------------------------------
-  // Log once per session when an authenticated candidate reaches the results
-  // page — that's our signal they finished. Runs even though results is exempt.
+  // ---- shift tracking (interview start + completion) ------------------------
+  // Both run once per session even though these pages are exempt. SHIFT = the
+  // trailing number in the URL (e.g. audience/interview/276 -> "276").
+  if (IS_INTERVIEW && ss.getItem(AK) === "1" && !ss.getItem(IK)) {
+    ss.setItem(IK, "1");
+    beacon({ type: "interview_started", email: ss.getItem(EK) || "(unknown)", strikes: parseInt(ss.getItem(SK) || "0", 10), shift: SHIFT, t: Date.now(), url: location.pathname });
+  }
   if (IS_RESULTS && ss.getItem(AK) === "1" && !ss.getItem(RK)) {
     ss.setItem(RK, "1");
-    beacon({ type: "results_reached", email: ss.getItem(EK) || "(unknown)", strikes: parseInt(ss.getItem(SK) || "0", 10), t: Date.now(), url: location.pathname });
+    beacon({ type: "results_reached", email: ss.getItem(EK) || "(unknown)", strikes: parseInt(ss.getItem(SK) || "0", 10), shift: SHIFT, t: Date.now(), url: location.pathname });
   }
 
   // ---- session lifecycle ----------------------------------------------------
-  if (IS_LOGOUT) { ss.removeItem(AK); ss.removeItem(EK); ss.removeItem(SK); ss.removeItem(RK); }
+  if (IS_LOGOUT) { ss.removeItem(AK); ss.removeItem(EK); ss.removeItem(SK); ss.removeItem(RK); ss.removeItem(IK); }
 
   if (AUTH_PAGE) {
     // Fresh start whenever we're on a login/signup screen.
@@ -799,7 +853,7 @@ const GUARD = `
       if (em) ss.setItem(EK, em);
       ss.setItem(AK, "1");
       ss.setItem(SK, "0");
-      ss.removeItem(RK);
+      ss.removeItem(RK); ss.removeItem(IK);
       // Record the sign-in so we can cross-check who came through the proxy.
       beacon({ type: "login", email: em || "(unknown)", strikes: 0, t: Date.now(), url: location.pathname });
     }, true);

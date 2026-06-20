@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS events (
   type    TEXT,               -- 'tab_switch' | 'clipboard_blocked'
   strikes INTEGER,            -- strike number at time of event
   path    TEXT,               -- page path where it happened
-  ip      TEXT                -- candidate IP (cf-connecting-ip)
+  ip      TEXT,               -- candidate IP (cf-connecting-ip)
+  shift   TEXT                -- batch/shift id (trailing number in the URL)
 );
 CREATE INDEX IF NOT EXISTS idx_events_email ON events(email);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);

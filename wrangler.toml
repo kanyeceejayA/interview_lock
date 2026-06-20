@@ -24,9 +24,14 @@ ADMIN_KEY = "change-me-to-something-long"
 # instruction pages). Strikes are preserved across these, not reset.
 EXEMPT_PATHS = "/interview/audience"
 
-# Comma-separated path fragments treated as the "results/finished" page. Visiting
-# one (while logged in) logs a results_reached event = candidate completed.
-RESULTS_PATHS = "/interview/audience/results"
+# Comma-separated path fragments treated as the "results/finished" page, e.g.
+# audience/results/276. Visiting one (logged in) logs results_reached = completed.
+# The trailing number is captured as the shift/batch id.
+RESULTS_PATHS = "audience/results"
+
+# Path fragments for the interview-START page, e.g. audience/interview/276.
+# Visiting one logs interview_started, tagged with the same shift/batch id.
+INTERVIEW_PATHS = "audience/interview"
 
 # Approved on-site IPs. On the exempt pages above, a candidate whose IP is NOT
 # in this list sees an "off-site network" warning (logged, not blocking).
