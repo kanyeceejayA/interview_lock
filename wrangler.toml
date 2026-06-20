@@ -1,9 +1,13 @@
+# NOTE: the Worker name MUST be "interview" — that is the service the GitHub
+# (Workers Builds) integration deploys to. If this says anything else, the CI
+# overrides it and warns on every build. Keep it as "interview".
 name = "interview"
 main = "src/worker.js"
 compatibility_date = "2025-06-01"
 
-# Deploys to https://interview-lock.<your-subdomain>.workers.dev for free.
-# To use a custom domain instead, add a [[routes]] / custom_domain block here.
+# Live at https://interview.kakbr800.workers.dev
+workers_dev = true
+preview_urls = false   # don't expose per-version preview URLs to candidates
 
 [vars]
 # Tab/app switches allowed before the hard "blocked" screen shows.
@@ -16,13 +20,9 @@ SUPERVISOR_PIN = "1212"
 # Key to view the integrity log at /__lock/admin?key=...  CHANGE THIS.
 ADMIN_KEY = "change-me-to-something-long"
 
-# ---- Persistent event log (D1) --------------------------------------------
-# Optional but recommended. Without it the proxy still works; events just
-# aren't stored. To enable:
-#   1) npx wrangler d1 create interview-lock-log
-#   2) paste the printed database_id below and uncomment this block
-#   3) npx wrangler d1 execute interview-lock-log --remote --file schema.sql
-#
+# ---- Persistent event log (D1) — ACTIVE -----------------------------------
+# Powers /__lock/admin. Do NOT comment this out, or builds deploy without the
+# DB binding and the admin page shows "No database bound".
 [[d1_databases]]
 binding = "DB"
 database_name = "interview-lock-log"
