@@ -6,5 +6,24 @@ compatibility_date = "2025-06-01"
 # To use a custom domain instead, add a [[routes]] / custom_domain block here.
 
 [vars]
-# Number of tab/app-switch warnings before the hard "blocked" screen shows.
-MAX_STRIKES = "3"
+# Tab/app switches allowed before the hard "blocked" screen shows.
+MAX_STRIKES = "10"
+
+# PIN the on-site supervisor types into the lock screen to reset a candidate.
+# CHANGE THIS before deploying.
+SUPERVISOR_PIN = "246810"
+
+# Key to view the integrity log at /__lock/admin?key=...  CHANGE THIS.
+ADMIN_KEY = "change-me-to-something-long"
+
+# ---- Persistent event log (D1) --------------------------------------------
+# Optional but recommended. Without it the proxy still works; events just
+# aren't stored. To enable:
+#   1) npx wrangler d1 create interview-lock-log
+#   2) paste the printed database_id below and uncomment this block
+#   3) npx wrangler d1 execute interview-lock-log --remote --file schema.sql
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "interview-lock-log"
+# database_id = "PASTE_DATABASE_ID_HERE"

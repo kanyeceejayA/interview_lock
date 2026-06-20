@@ -14,7 +14,13 @@ nothing to install.
 - ✅ Blocks **copy / cut / paste / right-click / text-selection** in the page
 - ✅ Detects **tab / app switching** and shows an escalating warning, then a hard
   **"interview locked"** screen after `MAX_STRIKES` switches
-- ✅ Logs every clipboard-block and switch event (view with `npm run tail`)
+- ✅ **Only enforces after login** — the login/signup/logout screens are untouched,
+  so password managers and "save password" prompts never trigger a false strike
+- ✅ **Auto-resets each candidate**: a new login starts at zero, logout clears it
+  (built for the "30-min paper, then the next person signs in" flow)
+- ✅ **Supervisor PIN reset** right on the lock screen — unlock a stuck candidate
+  without restarting the tablet
+- ✅ Logs every event **per candidate email**, viewable at a protected admin page
 
 ## What it cannot do (and why you still need Screen Pinning)
 
@@ -45,17 +51,41 @@ npm run qr -- https://interview-lock.<you>.workers.dev/
 
 Prints a QR in the terminal and saves `interview-qr.png` (800px) to print.
 
-### Watch the integrity log live
+### Supervisor reset (on the tablet)
+
+When a candidate is warned or hard-locked, the lock screen has a **Supervisor PIN**
+box. Type the `SUPERVISOR_PIN` and press Reset — strikes go back to zero and the
+candidate continues. No logout or restart needed. Set the PIN in `wrangler.toml`.
+
+### Seeing the logs
+
+Two ways:
+
+- **Live tail** (ephemeral, nothing stored): `npm run tail` → events print as
+  `[interview-lock] {...}`.
+- **Persistent per-candidate dashboard** (recommended): set up D1 (below), then open
+  `https://<your-worker-url>/__lock/admin?key=<ADMIN_KEY>`. Shows a table of
+  email → max strikes → tab switches → paste blocks → last activity, plus a recent
+  events feed.
+
+### Enable the persistent log (D1, free)
 
 ```bash
-npm run tail
+npx wrangler d1 create interview-lock-log          # prints a database_id
+# paste that id into wrangler.toml and uncomment the [[d1_databases]] block
+npx wrangler d1 execute interview-lock-log --remote --file schema.sql
+npm run deploy
 ```
 
-Each switch / blocked-paste shows as `[interview-lock] {...}`.
+Without this the proxy still works — events just aren't stored (tail only).
 
-## Configure
+## Configure (`wrangler.toml`)
 
-`wrangler.toml` → `MAX_STRIKES` (default `3`): switches allowed before the hard lock.
+| Var | What | Change before deploy? |
+|-----|------|-----------------------|
+| `MAX_STRIKES` | Switches allowed before the hard lock (default `10`) | optional |
+| `SUPERVISOR_PIN` | PIN the supervisor types to reset a candidate | **yes** |
+| `ADMIN_KEY` | Secret in the `/__lock/admin?key=` URL | **yes** |
 
 ## Local test
 
