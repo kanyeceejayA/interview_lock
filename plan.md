@@ -30,3 +30,6 @@ On copy/paste specifically, set expectations: you can reliably kill in-page sele
 If this is a big fleet and you want to push config centrally instead of touching each tablet, the proper version is enrolling them in an MDM as Android Enterprise dedicated devices (COSU / lock task mode) with a single-app kiosk policy. Same effect, central control, much better than per-device PIN pinning for unsupervised use.
 
 So: how many tablets, and are they supervised on-site the whole time, or do they go out unsupervised? That decides whether you do the quick kiosk-browser route or build the WebView wrapper.
+
+clear one person
+npx wrangler d1 execute interview-lock-log --remote --command "DELETE FROM events WHERE email='someone@example.com'"

@@ -33,18 +33,20 @@ export default {
       try {
         data = await request.json();
       } catch (_) {}
-      console.log("[interview-lock]", JSON.stringify(data));
+      const ip = request.headers.get("cf-connecting-ip") || "";
+      console.log("[interview-lock]", ip, JSON.stringify(data));
       if (env.DB) {
         try {
           await env.DB.prepare(
-            "INSERT INTO events (ts, email, type, strikes, path) VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO events (ts, email, type, strikes, path, ip) VALUES (?, ?, ?, ?, ?, ?)"
           )
             .bind(
               Date.now(),
               String(data.email || "(unknown)").slice(0, 200),
               String(data.type || "?").slice(0, 40),
               parseInt(data.strikes, 10) || 0,
-              String(data.url || "").slice(0, 300)
+              String(data.url || "").slice(0, 300),
+              ip.slice(0, 64)
             )
             .run();
         } catch (e) {
@@ -162,11 +164,23 @@ export default {
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
       const isExempt = exemptPaths.some((s) => p.includes(s));
+      // Geofence: on exempt pages (the pre-interview waiting room) warn if the
+      // candidate's IP isn't one of the approved on-site addresses. Empty list
+      // = no geofencing (never breaks if the var is unset).
+      const clientIp = request.headers.get("cf-connecting-ip") || "";
+      const allowedIps = (env.ALLOWED_IPS || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const ipAllowed = allowedIps.length === 0 || allowedIps.includes(clientIp);
+      const ipWarn = isExempt && !ipAllowed;
       body = injectGuard(body, {
         maxStrikes,
         isAuthPage,
         isLogout,
         isExempt,
+        ipWarn,
+        clientIp,
         supervisorPin: env.SUPERVISOR_PIN || "",
       });
     }
@@ -188,6 +202,8 @@ function injectGuard(html, opts) {
     .replace("__AUTH_PAGE__", opts.isAuthPage ? "true" : "false")
     .replace("__IS_LOGOUT__", opts.isLogout ? "true" : "false")
     .replace("__EXEMPT__", opts.isExempt ? "true" : "false")
+    .replace("__IP_WARN__", opts.ipWarn ? "true" : "false")
+    .replace("__CLIENT_IP__", JSON.stringify(opts.clientIp || ""))
     .replace("__SUPERVISOR_PIN__", JSON.stringify(opts.supervisorPin || ""));
   if (html.includes("</body>")) return html.replace("</body>", snippet + "</body>");
   if (html.includes("</html>")) return html.replace("</html>", snippet + "</html>");
@@ -208,12 +224,19 @@ async function renderAdmin(url, env) {
               MAX(strikes) AS max_strikes,
               SUM(CASE WHEN type='tab_switch' THEN 1 ELSE 0 END) AS switches,
               SUM(CASE WHEN type LIKE '%paste%' OR type='clipboard_blocked' THEN 1 ELSE 0 END) AS paste_blocks,
+              SUM(CASE WHEN type='offsite_warning' THEN 1 ELSE 0 END) AS offsite,
+              (SELECT e2.ip FROM events e2 WHERE e2.email = events.email AND e2.ip <> '' ORDER BY e2.ts DESC LIMIT 1) AS last_ip,
               MAX(ts) AS last_ts
        FROM events GROUP BY email ORDER BY last_ts DESC LIMIT 500`
     ).all();
-    const recent = await env.DB.prepare(
-      `SELECT ts, email, type, strikes, path FROM events ORDER BY ts DESC LIMIT 200`
+    const logins = await env.DB.prepare(
+      `SELECT ts, email, ip FROM events WHERE type='login' ORDER BY ts DESC LIMIT 500`
     ).all();
+    const recent = await env.DB.prepare(
+      `SELECT ts, email, type, strikes, path, ip FROM events ORDER BY ts DESC LIMIT 200`
+    ).all();
+
+    const fmt = (ts) => new Date(ts).toISOString().replace("T", " ").slice(0, 19);
 
     const rows = (summary.results || [])
       .map(
@@ -221,15 +244,22 @@ async function renderAdmin(url, env) {
           `<tr><td>${esc(r.email)}</td><td style="text-align:center">${r.max_strikes}</td>` +
           `<td style="text-align:center">${r.switches}</td>` +
           `<td style="text-align:center">${r.paste_blocks}</td>` +
-          `<td>${new Date(r.last_ts).toISOString().replace("T", " ").slice(0, 19)} UTC</td></tr>`
+          `<td style="text-align:center">${r.offsite}</td>` +
+          `<td>${esc(r.last_ip)}</td>` +
+          `<td>${fmt(r.last_ts)} UTC</td></tr>`
+      )
+      .join("");
+    const loginRows = (logins.results || [])
+      .map(
+        (r) => `<tr><td>${fmt(r.ts)}</td><td>${esc(r.email)}</td><td>${esc(r.ip)}</td></tr>`
       )
       .join("");
     const recentRows = (recent.results || [])
       .map(
         (r) =>
-          `<tr><td>${new Date(r.ts).toISOString().replace("T", " ").slice(0, 19)}</td>` +
+          `<tr><td>${fmt(r.ts)}</td>` +
           `<td>${esc(r.email)}</td><td>${esc(r.type)}</td>` +
-          `<td style="text-align:center">${r.strikes}</td><td>${esc(r.path)}</td></tr>`
+          `<td style="text-align:center">${r.strikes}</td><td>${esc(r.ip)}</td><td>${esc(r.path)}</td></tr>`
       )
       .join("");
 
@@ -237,10 +267,14 @@ async function renderAdmin(url, env) {
       <h1>Interview Lock — integrity log</h1>
       <h2>Per candidate</h2>
       <table><thead><tr><th>Email</th><th>Max strikes</th><th>Tab switches</th>
-        <th>Paste blocks</th><th>Last activity</th></tr></thead><tbody>${rows || "<tr><td colspan=5>No data yet</td></tr>"}</tbody></table>
+        <th>Paste blocks</th><th>Off-site warns</th><th>Last IP</th><th>Last activity</th></tr></thead>
+        <tbody>${rows || "<tr><td colspan=7>No data yet</td></tr>"}</tbody></table>
+      <h2>Sign-ins via this proxy (cross-check against the app's own login list)</h2>
+      <table><thead><tr><th>Time (UTC)</th><th>Email</th><th>IP</th></tr></thead>
+        <tbody>${loginRows || "<tr><td colspan=3>No sign-ins yet</td></tr>"}</tbody></table>
       <h2>Recent events (latest 200)</h2>
-      <table><thead><tr><th>Time (UTC)</th><th>Email</th><th>Event</th><th>Strike#</th><th>Path</th></tr></thead>
-        <tbody>${recentRows || "<tr><td colspan=5>No data yet</td></tr>"}</tbody></table>
+      <table><thead><tr><th>Time (UTC)</th><th>Email</th><th>Event</th><th>Strike#</th><th>IP</th><th>Path</th></tr></thead>
+        <tbody>${recentRows || "<tr><td colspan=6>No data yet</td></tr>"}</tbody></table>
     `);
   } catch (e) {
     return html(`<h2>Query error</h2><pre>${esc(e && e.message)}</pre>
@@ -304,7 +338,32 @@ const GUARD = `
     color: #fff; border: 1px solid rgba(255,255,255,.6);
   }
   #lock-sup-msg { display: block; margin-top: 8px; min-height: 16px; }
+  #lock-ipwarn {
+    position: fixed; inset: 0; z-index: 2147483646;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(150,90,0,0.97); color: #fff;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    text-align: center; padding: 24px;
+  }
+  #lock-ipwarn .box { max-width: 560px; }
+  #lock-ipwarn h1 { font-size: 26px; margin: 0 0 12px; }
+  #lock-ipwarn p { font-size: 17px; line-height: 1.5; margin: 0 0 18px; }
+  #lock-ipwarn button {
+    font-size: 16px; padding: 12px 28px; border: 0; border-radius: 8px;
+    background: #fff; color: #a35a00; font-weight: 700; cursor: pointer;
+  }
+  #lock-ipwarn .ip { font-size: 13px; opacity: .85; margin-top: 14px; }
 </style>
+<div id="lock-ipwarn" role="alertdialog" aria-live="assertive">
+  <div class="box">
+    <h1>⚠ Off-site network detected</h1>
+    <p>You appear to be taking this interview from outside the approved
+       interview location. This has been recorded. If this is a mistake,
+       notify your supervisor.</p>
+    <button id="lock-ipwarn-ok" type="button">I understand</button>
+    <p class="ip">Your network address: <span id="lock-ipwarn-ip"></span></p>
+  </div>
+</div>
 <div id="lock-overlay" role="alertdialog" aria-live="assertive">
   <div class="box">
     <h1 id="lock-title">⚠ Stay on this screen</h1>
@@ -329,9 +388,32 @@ const GUARD = `
   var AUTH_PAGE = __AUTH_PAGE__;   // login / signup / logout screen
   var IS_LOGOUT = __IS_LOGOUT__;
   var EXEMPT = __EXEMPT__;         // waiting room etc. — don't count switches
+  var IP_WARN = __IP_WARN__;       // candidate is off the approved network
+  var CLIENT_IP = __CLIENT_IP__;
   var SUP_PIN = __SUPERVISOR_PIN__;
   var SK = "lock_strikes", AK = "lock_authed", EK = "lock_email";
   var ss = window.sessionStorage;
+
+  function beacon(obj) {
+    try {
+      navigator.sendBeacon(
+        "/__lock/event",
+        new Blob([JSON.stringify(obj)], { type: "application/json" })
+      );
+    } catch (e) {}
+  }
+
+  // ---- off-network warning (shows even on exempt pages like the waiting room) -
+  if (IP_WARN) {
+    var ipo = document.getElementById("lock-ipwarn");
+    if (ipo) {
+      document.getElementById("lock-ipwarn-ip").textContent = CLIENT_IP || "unknown";
+      ipo.style.display = "flex";
+      var ipok = document.getElementById("lock-ipwarn-ok");
+      if (ipok) ipok.addEventListener("click", function () { ipo.style.display = "none"; });
+      beacon({ type: "offsite_warning", email: ss.getItem(EK) || "(unknown)", strikes: 0, t: Date.now(), url: location.pathname });
+    }
+  }
 
   // ---- session lifecycle ----------------------------------------------------
   if (IS_LOGOUT) { ss.removeItem(AK); ss.removeItem(EK); ss.removeItem(SK); }
@@ -348,9 +430,12 @@ const GUARD = `
         form.querySelector('input[name="email"]') ||
         form.querySelector('input[type="email"]') ||
         form.querySelector('input[type="text"]');
-      if (emailEl && emailEl.value) ss.setItem(EK, emailEl.value.trim());
+      var em = emailEl && emailEl.value ? emailEl.value.trim() : "";
+      if (em) ss.setItem(EK, em);
       ss.setItem(AK, "1");
       ss.setItem(SK, "0");
+      // Record the sign-in so we can cross-check who came through the proxy.
+      beacon({ type: "login", email: em || "(unknown)", strikes: 0, t: Date.now(), url: location.pathname });
     }, true);
     return; // no copy/paste blocking or switch detection on the login screen
   }
@@ -374,15 +459,7 @@ const GUARD = `
   var countEl = document.getElementById("lock-count");
 
   function log(type) {
-    try {
-      navigator.sendBeacon(
-        "/__lock/event",
-        new Blob(
-          [JSON.stringify({ type: type, strikes: strikes, email: email, t: Date.now(), url: location.pathname })],
-          { type: "application/json" }
-        )
-      );
-    } catch (e) {}
+    beacon({ type: type, strikes: strikes, email: email, t: Date.now(), url: location.pathname });
   }
 
   // ---- copy / paste / context-menu blocking --------------------------------

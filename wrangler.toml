@@ -24,6 +24,11 @@ ADMIN_KEY = "change-me-to-something-long"
 # instruction pages). Strikes are preserved across these, not reset.
 EXEMPT_PATHS = "/interview/audience"
 
+# Approved on-site IPs. On the exempt pages above, a candidate whose IP is NOT
+# in this list sees an "off-site network" warning (logged, not blocking).
+# Edit anytime + redeploy. Leave empty to disable the geofence entirely.
+ALLOWED_IPS = "154.72.199.50,196.0.117.82"
+
 # ---- Persistent event log (D1) — ACTIVE -----------------------------------
 # Powers /__lock/admin. Do NOT comment this out, or builds deploy without the
 # DB binding and the admin page shows "No database bound".
