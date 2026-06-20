@@ -973,34 +973,29 @@ const GUARD = `
     return; // no copy/paste blocking or switch detection on the login screen
   }
 
-  // Exempt pages (e.g. the pre-interview waiting room): pause enforcement but
-  // KEEP the current strike count so it carries into the interview itself.
-  if (EXEMPT) return;
-
-  // Past here = a normal (post-login) page. Only enforce if authenticated.
-  if (ss.getItem(AK) !== "1") return;
-
-  document.body.classList.add("lock-on");
+  // Past here = any NON-login page. Copy/paste is blocked everywhere here
+  // (the login screen is the only place it's allowed). Tab-switch detection is
+  // additionally turned on once the candidate has logged in.
+  var authed = ss.getItem(AK) === "1";
   var strikes = parseInt(ss.getItem(SK) || "0", 10);
   var email = ss.getItem(EK) || "(unknown)";
   var leftAt = 0;
 
-  var overlay = document.getElementById("lock-overlay");
-  var title = document.getElementById("lock-title");
-  var msg = document.getElementById("lock-msg");
-  var ack = document.getElementById("lock-ack");
-  var countEl = document.getElementById("lock-count");
+  document.body.classList.add("lock-on");
 
   function log(type) {
+    if (!authed) return; // no candidate to attribute it to before login
     beacon({ type: type, strikes: strikes, email: email, t: Date.now(), url: location.pathname });
   }
 
-  // ---- copy / paste / context-menu blocking --------------------------------
+  // ---- copy / paste / context-menu blocking (every page except login) ------
   ["copy", "cut", "paste", "contextmenu", "dragstart", "selectstart"].forEach(function (ev) {
     document.addEventListener(ev, function (e) {
       var t = e.target;
       var editable = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      if ((ev === "selectstart" || ev === "contextmenu") && editable) return;
+      // allow selecting/editing text inside their own answer fields, but NEVER
+      // allow copy/cut/paste, the context menu, or dragging text out.
+      if (ev === "selectstart" && editable) return;
       e.preventDefault();
       e.stopPropagation();
       if (ev === "copy" || ev === "cut" || ev === "paste") log("clipboard_blocked");
@@ -1019,7 +1014,15 @@ const GUARD = `
     if (k === "f12") { e.preventDefault(); return false; }
   }, true);
 
-  // ---- tab / app switch detection ------------------------------------------
+  // ---- tab / app switch detection: starts as soon as the candidate is in ---
+  if (!authed) return; // copy/paste already locked above; switches need a login
+
+  var overlay = document.getElementById("lock-overlay");
+  var title = document.getElementById("lock-title");
+  var msg = document.getElementById("lock-msg");
+  var ack = document.getElementById("lock-ack");
+  var countEl = document.getElementById("lock-count");
+
   // Use ONLY visibilitychange (document.hidden). Unlike blur/focus, it does NOT
   // fire for in-page browser UI — autofill dropdowns, "save password?" prompts,
   // the soft keyboard, or address-bar focus — which were causing false strikes.
