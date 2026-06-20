@@ -218,68 +218,177 @@ async function renderAdmin(url, env) {
   if (!env.DB) {
     return html("<h2>No database bound</h2><p>Set up the D1 binding to log events.</p>");
   }
+  let events = [];
   try {
-    const summary = await env.DB.prepare(
-      `SELECT email,
-              MAX(strikes) AS max_strikes,
-              SUM(CASE WHEN type='tab_switch' THEN 1 ELSE 0 END) AS switches,
-              SUM(CASE WHEN type LIKE '%paste%' OR type='clipboard_blocked' THEN 1 ELSE 0 END) AS paste_blocks,
-              SUM(CASE WHEN type='offsite_warning' THEN 1 ELSE 0 END) AS offsite,
-              (SELECT e2.ip FROM events e2 WHERE e2.email = events.email AND e2.ip <> '' ORDER BY e2.ts DESC LIMIT 1) AS last_ip,
-              MAX(ts) AS last_ts
-       FROM events GROUP BY email ORDER BY last_ts DESC LIMIT 500`
+    const r = await env.DB.prepare(
+      "SELECT ts, email, type, strikes, path, ip FROM events ORDER BY ts DESC LIMIT 5000"
     ).all();
-    const logins = await env.DB.prepare(
-      `SELECT ts, email, ip FROM events WHERE type='login' ORDER BY ts DESC LIMIT 500`
-    ).all();
-    const recent = await env.DB.prepare(
-      `SELECT ts, email, type, strikes, path, ip FROM events ORDER BY ts DESC LIMIT 200`
-    ).all();
-
-    const fmt = (ts) => new Date(ts).toISOString().replace("T", " ").slice(0, 19);
-
-    const rows = (summary.results || [])
-      .map(
-        (r) =>
-          `<tr><td>${esc(r.email)}</td><td style="text-align:center">${r.max_strikes}</td>` +
-          `<td style="text-align:center">${r.switches}</td>` +
-          `<td style="text-align:center">${r.paste_blocks}</td>` +
-          `<td style="text-align:center">${r.offsite}</td>` +
-          `<td>${esc(r.last_ip)}</td>` +
-          `<td>${fmt(r.last_ts)} UTC</td></tr>`
-      )
-      .join("");
-    const loginRows = (logins.results || [])
-      .map(
-        (r) => `<tr><td>${fmt(r.ts)}</td><td>${esc(r.email)}</td><td>${esc(r.ip)}</td></tr>`
-      )
-      .join("");
-    const recentRows = (recent.results || [])
-      .map(
-        (r) =>
-          `<tr><td>${fmt(r.ts)}</td>` +
-          `<td>${esc(r.email)}</td><td>${esc(r.type)}</td>` +
-          `<td style="text-align:center">${r.strikes}</td><td>${esc(r.ip)}</td><td>${esc(r.path)}</td></tr>`
-      )
-      .join("");
-
-    return html(`
-      <h1>Interview Lock — integrity log</h1>
-      <h2>Per candidate</h2>
-      <table><thead><tr><th>Email</th><th>Max strikes</th><th>Tab switches</th>
-        <th>Paste blocks</th><th>Off-site warns</th><th>Last IP</th><th>Last activity</th></tr></thead>
-        <tbody>${rows || "<tr><td colspan=7>No data yet</td></tr>"}</tbody></table>
-      <h2>Sign-ins via this proxy (cross-check against the app's own login list)</h2>
-      <table><thead><tr><th>Time (UTC)</th><th>Email</th><th>IP</th></tr></thead>
-        <tbody>${loginRows || "<tr><td colspan=3>No sign-ins yet</td></tr>"}</tbody></table>
-      <h2>Recent events (latest 200)</h2>
-      <table><thead><tr><th>Time (UTC)</th><th>Email</th><th>Event</th><th>Strike#</th><th>IP</th><th>Path</th></tr></thead>
-        <tbody>${recentRows || "<tr><td colspan=6>No data yet</td></tr>"}</tbody></table>
-    `);
+    events = r.results || [];
   } catch (e) {
     return html(`<h2>Query error</h2><pre>${esc(e && e.message)}</pre>
       <p>Did you create the table? See README → D1 setup.</p>`);
   }
+  const payload = JSON.stringify(events).replace(/</g, "\\u003c");
+  return new Response(adminDoc(payload), {
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+}
+
+function adminDoc(payload) {
+  return `<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Interview Lock — dashboard</title>
+<style>
+:root{--side:#111827;--accent:#2563eb;--line:#e5e7eb;--mut:#6b7280}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1f2937;background:#f3f4f6}
+.app{display:flex;min-height:100vh}
+.side{width:230px;flex:0 0 230px;background:var(--side);color:#e5e7eb;padding:20px 0}
+.brand{padding:0 20px 16px;border-bottom:1px solid #1f2937}
+.brand b{font-size:16px}.brand span{display:block;font-size:12px;color:#9ca3af;margin-top:2px}
+.nav{margin-top:14px}
+.nav button{display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:0;color:#cbd5e1;text-align:left;padding:11px 20px;font-size:14px;cursor:pointer}
+.nav button:hover{background:#1f2937;color:#fff}
+.nav button.active{background:var(--accent);color:#fff}
+.nav .badge{background:rgba(255,255,255,.18);border-radius:10px;padding:1px 8px;font-size:12px}
+.main{flex:1;min-width:0;padding:24px 28px}
+.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.head h1{font-size:20px;margin:0}
+.actions button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.tile{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.tile .n{font-size:26px;font-weight:700}
+.tile .l{font-size:12px;color:var(--mut);margin-top:4px;text-transform:uppercase;letter-spacing:.04em}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.toolbar input,.toolbar select{border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:14px}
+.toolbar input{flex:1;max-width:340px}
+.toolbar .count{color:var(--mut);font-size:13px;margin-left:auto}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+thead th{background:#f9fafb;text-align:left;padding:11px 14px;font-size:12px;color:#374151;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;position:sticky;top:0}
+thead th .ar{color:#9ca3af;font-size:11px}
+tbody td{padding:10px 14px;border-bottom:1px solid #f1f5f9}
+tbody tr:hover{background:#f8fafc}
+.center{text-align:center}
+.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}
+.pill.warn{background:#fef3c7;color:#92400e}.pill.bad{background:#fee2e2;color:#991b1b}.pill.ok{background:#dcfce7;color:#166534}
+.empty{padding:40px;text-align:center;color:var(--mut)}
+@media(max-width:760px){.tiles{grid-template-columns:repeat(2,1fr)}}
+</style></head><body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><b>Interview Lock</b><span>integrity dashboard</span></div>
+    <nav class="nav">
+      <button data-v="candidates"><span>Candidates</span><span class="badge" id="b-candidates"></span></button>
+      <button data-v="events"><span>All events</span><span class="badge" id="b-events"></span></button>
+      <button data-v="offsite"><span>Off-site warnings</span><span class="badge" id="b-offsite"></span></button>
+      <button data-v="signins"><span>Sign-ins</span><span class="badge" id="b-signins"></span></button>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="head"><h1 id="title"></h1><div class="actions"><button onclick="location.reload()">&#8635; Refresh</button></div></div>
+    <div class="tiles">
+      <div class="tile"><div class="n" id="t-cand">0</div><div class="l">Candidates</div></div>
+      <div class="tile"><div class="n" id="t-sw">0</div><div class="l">Tab switches</div></div>
+      <div class="tile"><div class="n" id="t-paste">0</div><div class="l">Paste blocks</div></div>
+      <div class="tile"><div class="n" id="t-off">0</div><div class="l">Off-site warnings</div></div>
+    </div>
+    <div class="toolbar">
+      <input id="search" placeholder="Search...">
+      <select id="typeFilter"></select>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="card"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+  </main>
+</div>
+<script>
+var DATA = ${payload};
+var $ = function(s){return document.querySelector(s)};
+function fmt(ts){ if(!ts) return ''; return new Date(ts).toISOString().replace('T',' ').slice(0,19); }
+function esc(s){ s=(s==null?'':''+s); return s.replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+var byEmail={};
+DATA.forEach(function(e){
+  var k=e.email||'(unknown)';
+  var c=byEmail[k]||(byEmail[k]={email:k,max_strikes:0,switches:0,paste_blocks:0,offsite:0,last_ip:'',last_ts:0});
+  if((e.strikes||0)>c.max_strikes)c.max_strikes=e.strikes||0;
+  if(e.type==='tab_switch')c.switches++;
+  if(e.type==='clipboard_blocked'||(e.type&&e.type.indexOf('paste')>=0))c.paste_blocks++;
+  if(e.type==='offsite_warning')c.offsite++;
+  if((e.ts||0)>c.last_ts)c.last_ts=e.ts||0;
+  if(e.ip&&!c.last_ip)c.last_ip=e.ip;
+});
+var candidates=Object.keys(byEmail).map(function(k){return byEmail[k];});
+var signins=DATA.filter(function(e){return e.type==='login';});
+var offsite=DATA.filter(function(e){return e.type==='offsite_warning';});
+
+function pill(v){ var cls=v>=5?'bad':(v>0?'warn':'ok'); return '<span class="pill '+cls+'">'+v+'</span>'; }
+
+var VIEWS={
+ candidates:{title:'Candidates',rows:function(){return candidates;},sort:{key:'last_ts',dir:-1},cols:[
+   {key:'email',label:'Email'},
+   {key:'max_strikes',label:'Max strikes',align:'center',fmt:pill},
+   {key:'switches',label:'Tab switches',align:'center'},
+   {key:'paste_blocks',label:'Paste blocks',align:'center'},
+   {key:'offsite',label:'Off-site',align:'center'},
+   {key:'last_ip',label:'Last IP'},
+   {key:'last_ts',label:'Last activity',fmt:fmt}]},
+ events:{title:'All events',rows:function(){return DATA;},sort:{key:'ts',dir:-1},types:true,cols:[
+   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'email',label:'Email'},
+   {key:'type',label:'Event'},
+   {key:'strikes',label:'Strike#',align:'center'},
+   {key:'ip',label:'IP'},
+   {key:'path',label:'Path'}]},
+ offsite:{title:'Off-site warnings',rows:function(){return offsite;},sort:{key:'ts',dir:-1},cols:[
+   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'email',label:'Email'},
+   {key:'ip',label:'IP'},
+   {key:'path',label:'Path'}]},
+ signins:{title:'Sign-ins via this proxy',rows:function(){return signins;},sort:{key:'ts',dir:-1},cols:[
+   {key:'ts',label:'Time (UTC)',fmt:fmt},
+   {key:'email',label:'Email'},
+   {key:'ip',label:'IP'}]}
+};
+
+var state={view:'candidates',sortKey:null,sortDir:-1,q:'',type:''};
+
+function render(){
+  var v=VIEWS[state.view];
+  var key=state.sortKey||v.sort.key, dir=state.sortDir;
+  var rows=v.rows().slice();
+  if(state.q){ var q=state.q.toLowerCase(); rows=rows.filter(function(r){ return v.cols.some(function(c){ return (''+(r[c.key]==null?'':r[c.key])).toLowerCase().indexOf(q)>=0; }); }); }
+  if(v.types && state.type){ rows=rows.filter(function(r){return r.type===state.type;}); }
+  rows.sort(function(a,b){ var x=a[key],y=b[key]; if(typeof x==='number'||typeof y==='number'){x=+x||0;y=+y||0;} else {x=(''+(x||'')).toLowerCase();y=(''+(y||'')).toLowerCase();} return x<y?-dir:(x>y?dir:0); });
+  var thead='<tr>'+v.cols.map(function(c){ var ar=(key===c.key)?(dir<0?'\\u25BC':'\\u25B2'):''; return '<th data-k="'+c.key+'" class="'+(c.align==='center'?'center':'')+'">'+esc(c.label)+' <span class="ar">'+ar+'</span></th>'; }).join('')+'</tr>';
+  var body=rows.length? rows.map(function(r){ return '<tr>'+v.cols.map(function(c){ var val=r[c.key]; var disp=c.fmt?c.fmt(val):esc(val==null?'':val); return '<td class="'+(c.align==='center'?'center':'')+'">'+disp+'</td>'; }).join('')+'</tr>'; }).join('') : '<tr><td class="empty" colspan="'+v.cols.length+'">Nothing here yet</td></tr>';
+  $('#title').textContent=v.title;
+  $('#count').textContent=rows.length+' row'+(rows.length===1?'':'s');
+  $('#thead').innerHTML=thead;
+  $('#tbody').innerHTML=body;
+  $('#typeFilter').style.display=v.types?'':'none';
+  Array.prototype.forEach.call(document.querySelectorAll('.nav button'),function(b){ b.classList.toggle('active', b.getAttribute('data-v')===state.view); });
+  Array.prototype.forEach.call(document.querySelectorAll('#thead th'),function(th){ th.onclick=function(){ var k=th.getAttribute('data-k'); var eff=state.sortKey||v.sort.key; if(k===eff){state.sortDir=-state.sortDir;}else{state.sortDir=-1;} state.sortKey=k; render(); }; });
+}
+
+function go(view){ state.view=view; state.sortKey=null; state.sortDir=VIEWS[view].sort.dir; state.q=''; state.type=''; $('#search').value=''; $('#typeFilter').value=''; render(); }
+
+Array.prototype.forEach.call(document.querySelectorAll('.nav button'),function(b){ b.onclick=function(){go(b.getAttribute('data-v'));}; });
+$('#search').oninput=function(){state.q=this.value;render();};
+$('#typeFilter').onchange=function(){state.type=this.value;render();};
+
+var types={}; DATA.forEach(function(e){if(e.type)types[e.type]=1;});
+$('#typeFilter').innerHTML='<option value="">All types</option>'+Object.keys(types).sort().map(function(t){return '<option value="'+esc(t)+'">'+esc(t)+'</option>';}).join('');
+$('#b-candidates').textContent=candidates.length;
+$('#b-events').textContent=DATA.length;
+$('#b-offsite').textContent=offsite.length;
+$('#b-signins').textContent=signins.length;
+$('#t-cand').textContent=candidates.length;
+$('#t-sw').textContent=candidates.reduce(function(s,c){return s+c.switches;},0);
+$('#t-paste').textContent=candidates.reduce(function(s,c){return s+c.paste_blocks;},0);
+$('#t-off').textContent=offsite.length;
+go('candidates');
+</script></body></html>`;
 }
 
 function esc(s) {
